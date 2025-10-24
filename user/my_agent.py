@@ -18,16 +18,17 @@ import os
 import gdown
 from typing import Optional
 from environment.agent import Agent
-from stable_baselines3 import PPO, A2C, SAC # Sample RL Algo imports
+from stable_baselines3 import PPO, A2C # Sample RL Algo imports
 from sb3_contrib import RecurrentPPO # Importing an LSTM
 
 class SubmittedAgent(Agent):
-
+    '''
+    Input the **file_path** to your agent here for submission!
+    '''
     def __init__(
-            self,
-            file_path: Optional[str] = None,
+        self,
+        file_path: Optional[str] = None,
     ):
-        # Your code here
         super().__init__(file_path)
 
     def _initialize(self) -> None:
@@ -56,5 +57,3 @@ class SubmittedAgent(Agent):
     def learn(self, env, total_timesteps, log_interval: int = 4):
         self.model.set_env(env)
         self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval)
-
-

@@ -4066,9 +4066,9 @@ class WeaponGO(GameObject):
     def get_vfx(self):
         if not hasattr(self,"vfx"):
             if self.name == "Spear":
-                vfx_folder = "spearvfx"
+                vfx_folder = "environment/spearvfx"
             elif self.name == "Hammer":
-                vfx_folder = "hammervfx"
+                vfx_folder = "environment/hammervfx"
             
             scale = 1.0
             flipped = False
@@ -4189,7 +4189,7 @@ class WeaponSpawner:
         self.initialize_vfx()
     def initialize_vfx(self):
            #VFX 
-        self.vfx = SpawnerVFX(camera=self.camera, world_pos=self.world_pos, animation_folder="spawnervfx", scale=1.25) # spawn.gif, idle.gif, despawn.gif, pickup.gif
+        self.vfx = SpawnerVFX(camera=self.camera, world_pos=self.world_pos, animation_folder="environment/spawnervfx", scale=1.25) # spawn.gif, idle.gif, despawn.gif, pickup.gif
         self.env.objects[f"SpawnerVFX{self.id}"] = self.vfx
         self.flag = False
  
