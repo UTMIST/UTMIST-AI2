@@ -1043,16 +1043,19 @@ from pygame.locals import QUIT
 def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=30*90, resolution=CameraResolution.LOW):
     pygame.init()
 
-    pygame.mixer.init()
+    try:
+        pygame.mixer.init()
 
-    # Load your soundtrack (must be .wav, .ogg, or supported format)
-    pygame.mixer.music.load("environment/assets/soundtrack.mp3")
+        # Load your soundtrack (must be .wav, .ogg, or supported format)
+        pygame.mixer.music.load("environment/assets/soundtrack.mp3")
 
-    # Play it on loop: -1 = loop forever
-    pygame.mixer.music.play(-1)
+        # Play it on loop: -1 = loop forever
+        pygame.mixer.music.play(-1)
 
-    # Optional: set volume (0.0 to 1.0)
-    pygame.mixer.music.set_volume(0.2)
+        # Optional: set volume (0.0 to 1.0)
+        pygame.mixer.music.set_volume(0.2)
+    except:
+        print("Failed to initialize pygame mixer")
 
     resolutions = {
         CameraResolution.LOW: (480, 720),
