@@ -34,14 +34,14 @@
             {
               "xOffset": 190,
               "yOffset": -50,
-              "width": 116,
-              "height": 96
+              "width": 216,
+              "height":196
             },
             {
               "xOffset": 217,
               "yOffset": -39,
-              "width": 78,
-              "height": 120
+              "width": 178,
+              "height": 220
             }
           ],
           "frameChanges": [
@@ -64,14 +64,14 @@
             {
               "xOffset": 203,
               "yOffset": -50,
-              "width": 90,
-              "height": 96
+              "width": 190,
+              "height": 196
             },
             {
               "xOffset": 217,
               "yOffset": -39,
-              "width": 78,
-              "height": 120
+              "width": 178,
+              "height": 220
             }
           ],
           "frameChanges": [

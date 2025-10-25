@@ -214,7 +214,6 @@ class RewardManager():
         term_partial = partial(term_cfg.func, **term_cfg.params)
         self.collected_signal_rewards += term_partial(*args, **kwargs) * term_cfg.weight
 
-
     def process(self, env, dt) -> float:
         # reset computation
         reward_buffer = 0.0
@@ -400,7 +399,6 @@ class SelfPlayHandler(ABC):
     def get_opponent(self) -> Agent:
         pass
 
-
 class SelfPlayLatest(SelfPlayHandler):
     def __init__(self, agent_partial: partial):
         super().__init__(agent_partial)
@@ -408,17 +406,6 @@ class SelfPlayLatest(SelfPlayHandler):
     def get_opponent(self) -> Agent:
         assert self.save_handler is not None, "Save handler must be specified for self-play"
         chosen_path = self.save_handler.get_latest_model_path()
-        return self.get_model_from_path(chosen_path)
-
-class SelfPlayDynamic(SelfPlayHandler):
-    def __init__(self, agent_partial: partial):
-        super().__init__(agent_partial)
-    
-    @NotImplementedError
-    def get_opponent(self) -> Agent:
-        assert self.save_handler is not None, "Save handler must be specified for self-play"
-        assert self.save_handler.max_saved == -1, "Save handler must have max_saved=-1 for dynamic self-play (save all past opponents)"
-        chosen_path = self.save_handler.get_random_model_path()
         return self.get_model_from_path(chosen_path)
 
 class SelfPlayRandom(SelfPlayHandler):
@@ -679,11 +666,7 @@ def run_match(agent_1: Agent | partial,
 
     if video_path is not None:
         writer.close()
-
     env.close()
-
-
-
 
     # visualize
     # Video(video_path, embed=True, width=800) if video_path is not None else None
@@ -709,57 +692,6 @@ def run_match(agent_1: Agent | partial,
     return match_stats
 
 
-# # Training
-# 
-# Here, you can set the reward functions and train your agent. If you'd like to write a heuristic (if-statement) agent, you can also reference the Example Agents here.
-
-# ## Example Agent Classes
-# Reference these to design a gamut of opponents for your model to face off against!
-
-# In[ ]:
-
-
-# Recall the possible observations
-# Set name='player', or name='opponent'
-# obs_helper.get_section(obs, f"{name}_pos") # low=[-1, -1], high=[1, 1]
-# obs_helper.get_section(obs, f"{name}_facing") # low=[0], high=[1]
-# obs_helper.get_section(obs, f"{name}_vel") # low=[-1, -1], high=[1, 1]
-# obs_helper.get_section(obs, f"{name}_grounded") # low=[0], high=[1]
-# obs_helper.get_section(obs, f"{name}_aerial") # low=[0], high=[1]
-# obs_helper.get_section(obs, f"{name}_jumps_left") # low=[0], high=[2]
-# obs_helper.get_section(obs, f"{name}_state") # low=[0], high=[12]
-# obs_helper.get_section(obs, f"{name}_recoveries_left") # low=[0], high=[1]
-# obs_helper.get_section(obs, f"{name}_dodge_timer") # low=[0], high=[1]
-# obs_helper.get_section(obs, f"{name}_stun_frames") # low=[0], high=[1]
-# obs_helper.get_section(obs, f"{name}_damage") # low=[0], high=[1]
-# obs_helper.get_section(obs, f"{name}_stocks") # low=[0], high=[3]
-# obs_helper.get_section(obs, f"{name}_move_type") # low=[0], high=[11]
-
-
-# In[ ]:
-
-
-# player_state and opponent_state map to this
-# state_mapping = {
-#             'WalkingState': 0,
-#             'StandingState': 1,
-#             'TurnaroundState': 2,
-#             'AirTurnaroundState': 3,
-#             'SprintingState': 4,
-#             'StunState': 5,
-#             'InAirState': 6,
-#             'DodgeState': 7,
-#             'AttackState': 8,
-#             'DashState': 9,
-#             'BackDashState': 10,
-#             'KOState': 11,
-#             'TauntState': 12,
-#         }
-
-
-# In[ ]:
-
-
 class ConstantAgent(Agent):
 
     def __init__(
@@ -773,10 +705,6 @@ class ConstantAgent(Agent):
         action = np.zeros_like(self.action_space.sample())
         return action
 
-
-# In[ ]:
-
-
 class RandomAgent(Agent):
 
     def __init__(
@@ -789,9 +717,6 @@ class RandomAgent(Agent):
     def predict(self, obs):
         action = self.action_space.sample()
         return action
-
-
-# In[ ]:
 
 
 class BasedAgent(Agent):
@@ -833,10 +758,6 @@ class BasedAgent(Agent):
             action = self.act_helper.press_keys(['j'], action)
         return action
 
-
-# In[ ]:
-
-
 class UserInputAgent(Agent):
 
     def __init__(
@@ -877,9 +798,6 @@ class UserInputAgent(Agent):
         #if keys[pygame.K_v]:
         #    action = self.act_helper.press_keys(['v'], action)
         return action
-
-
-# In[ ]:
 
 
 class ClockworkAgent(Agent):
@@ -947,10 +865,6 @@ class ClockworkAgent(Agent):
         self.steps += 1  # Increment step counter
         return action
 
-
-# In[ ]:
-
-
 from stable_baselines3 import A2C, PPO
 from stable_baselines3.common.base_class import BaseAlgorithm
 
@@ -991,13 +905,7 @@ class SB3Agent(Agent):
         self.model.learn(
             total_timesteps=total_timesteps,
             log_interval=log_interval,
-
-
         )
-
-
-# In[ ]:
-
 
 from sb3_contrib import RecurrentPPO
 
@@ -1175,6 +1083,7 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
     #stage2 = env.objects["stage2"]
     background_image = pygame.image.load('environment/assets/map/bg.jpg').convert() 
     while running and timestep < max_timesteps:
+       
         # Pygame event to handle real-time user input 
        
         for event in pygame.event.get():
@@ -1207,8 +1116,6 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
         # If the match is over (either terminated or truncated), stop the loop
         if terminated or truncated:
             running = False
-        
-
 
         timestep += 1
 
@@ -1237,47 +1144,3 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
     env.close()
 
     return match_stats
-
-if __name__ == '__main__':
-    # Create agent
-    # Start here if you want to train from scratch
-    my_agent = RecurrentPPOAgent()
-    # Start here if you want to train from a specific timestep
-    #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_3/rl_model_120006_steps.zip')
-
-    # Reward manager
-    
-
-    reward_manager = gen_reward_manager()
-    # Self-play settings
-    selfplay_handler = SelfPlayRandom(
-        partial(RecurrentPPOAgent), # Agent class and its keyword arguments
-    )
-
-    # Save settings
-    save_handler = SaveHandler(
-        agent=my_agent, # Agent to save
-        save_freq=100_000, # Save frequency
-        max_saved=40, # Maximum number of saved models
-        save_path='checkpoints', # Save path
-        run_name='experiment_6',
-        mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
-    )
-
-    # Opponent settings
-    opponent_specification = {
-                    'self_play': (8, selfplay_handler),
-                    'constant_agent': (0.5, partial(ConstantAgent)),
-                    'based_agent': (1.5, partial(BasedAgent)),
-                }
-    opponent_cfg = OpponentsCfg(opponents=opponent_specification)
-
-    train(my_agent,
-        reward_manager,
-        save_handler,
-        opponent_cfg,
-        CameraResolution.LOW,
-        train_timesteps=1_000_000_000,
-        train_logging=TrainLogging.PLOT
-    )
-

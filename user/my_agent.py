@@ -37,6 +37,7 @@ class SubmittedAgent(Agent):
             del self.env
         else:
             self.model = PPO.load(self.file_path)
+
     def _gdown(self) -> str:
         data_path = "rl-model.zip"
         if not os.path.isfile(data_path):

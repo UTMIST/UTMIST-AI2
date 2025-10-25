@@ -1,4 +1,4 @@
-from environment.environment import *
+from user.environment import *
 
 
 class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):

@@ -43,9 +43,9 @@
         {
           "startupFrames": 4,
           "attackFrames": 6,
-          "baseDamage": 20,
-          "variableForce": 46.0,
-          "fixedForce": 40.0,
+          "baseDamage": 10,
+          "variableForce": 23.0,
+          "fixedForce": 20.0,
           "hitboxes": [
             {
               "xOffset": 53,

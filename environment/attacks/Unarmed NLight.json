@@ -17,8 +17,8 @@
         {
           "startupFrames": 5,
           "attackFrames": 3,
-          "baseDamage": 3,
-          "fixedForce": 25.0,
+          "baseDamage": 1.5,
+          "fixedForce": 12.5,
           "hitboxes": [
             {
               "xOffset": 76,
@@ -96,8 +96,8 @@
         {
           "startupFrames": 6,
           "attackFrames": 6,
-          "baseDamage": 3,
-          "fixedForce": 20.0,
+          "baseDamage": 1.5,
+          "fixedForce": 10.0,
           "hitboxes": [
             {
               "xOffset": 74,
@@ -185,8 +185,8 @@
         {
           "startupFrames": 6,
           "attackFrames": 3,
-          "baseDamage": 3,
-          "fixedForce": 26.0,
+          "baseDamage": 1.5,
+          "fixedForce": 13.0,
           "hitboxes": [
             {
               "xOffset": 61,
@@ -340,9 +340,9 @@
         {
           "startupFrames": 2,
           "attackFrames": 5,
-          "baseDamage": 5,
-          "variableForce": 31.0,
-          "fixedForce": 52.0,
+          "baseDamage": 2.5,
+          "variableForce": 15.5,
+          "fixedForce": 26.0,
           "hitboxes": [
             {
               "xOffset": 39,
@@ -459,9 +459,9 @@
       "casts": [
         {
           "attackFrames": 1,
-          "baseDamage": -1,
-          "variableForce": -1.0,
-          "fixedForce": -1.0
+          "baseDamage": -0.5,
+          "variableForce": -0.5,
+          "fixedForce": -0.5
         }
       ]
     }

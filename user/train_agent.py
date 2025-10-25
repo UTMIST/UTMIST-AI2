@@ -433,6 +433,20 @@ def on_knockout_reward(env: WarehouseBrawl, agent: str) -> float:
         return -1.0
     else:
         return 1.0
+    
+def on_equip_reward(env: WarehouseBrawl, agent: str) -> float:
+    if agent == "player":
+        if env.objects["player"].weapon == "Hammer":
+            return 2.0
+        elif env.objects["player"].weapon == "Spear":
+            return 1.0
+    return 0.0
+
+def on_drop_reward(env: WarehouseBrawl, agent: str) -> float:
+    if agent == "player":
+        if env.objects["player"].weapon == "Punch":
+            return -1.0
+    return 0.0
 
 def on_combo_reward(env: WarehouseBrawl, agent: str) -> float:
     if agent == 'player':
@@ -458,6 +472,8 @@ def gen_reward_manager():
         'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=50)),
         'on_knockout_reward': ('knockout_signal', RewTerm(func=on_knockout_reward, weight=8)),
         'on_combo_reward': ('hit_during_stun', RewTerm(func=on_combo_reward, weight=5)),
+        'on_equip_reward': ('weapon_equip_signal', RewTerm(func=on_equip_reward, weight=10)),
+        'on_drop_reward': ('weapon_drop_signal', RewTerm(func=on_drop_reward, weight=15))
     }
     return RewardManager(reward_functions, signal_subscriptions)
 
@@ -489,7 +505,7 @@ if __name__ == '__main__':
         save_freq=100_000, # Save frequency
         max_saved=40, # Maximum number of saved models
         save_path='checkpoints', # Save path
-        run_name='experiment_6',
+        run_name='experiment_7',
         mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
     )
 

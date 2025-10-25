@@ -526,18 +526,7 @@ class RenderMode(Enum):
     RGB_ARRAY = 1
     PYGAME_WINDOW = 2
 
-class Camera():
-    background_image = pygame.image.load('environment/assets/map/martin.png')
-
-    scale_factor = 0.72
-    new_width = int(background_image.get_width() * scale_factor)
-    new_height = int(background_image.get_height() * scale_factor)
-
-    background_image = pygame.transform.scale(
-        background_image,
-        (new_width, new_height)
-    )
-
+class Camera():    
     screen_width_tiles: float = 29.8
     screen_height_tiles: float = 16.8
     pixels_per_tile: float = 43
@@ -546,6 +535,26 @@ class Camera():
     pos: list[int] = [0,0]
     zoom: float = 2.0
 
+    def scale_background(self, env, bg_image: pygame.image = pygame.image.load('environment/assets/map/background.png')) -> None:
+        resolution: Tuple[int] = env.resolution
+        window_height, window_width = self.resolutions[resolution]
+
+        # Calculate scale factors
+        width_scale = window_width / bg_image.get_width() 
+        height_scale = window_height / bg_image.get_height()
+
+        # use max scale factor for the ratio to ensure it fits the env
+        scale_factor = max(width_scale, height_scale)
+
+        # Calculate new dimensions  
+        new_width = int(bg_image.get_width() * scale_factor)
+        new_height = int(bg_image.get_height() * scale_factor)
+
+        # Assign new background img
+        self.background_image = pygame.transform.scale(
+            bg_image,
+            (new_width, new_height)
+        )
 
     def reset(self, env):
         self.space = env.space
@@ -858,6 +867,10 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         self.knockout_signal = Signal(self)
         self.win_signal = Signal(self)
         self.hit_during_stun = Signal(self)
+        
+        #kaden
+        self.weapon_drop_signal = Signal(self)
+        self.weapon_equip_signal = Signal(self)
 
         # Observation Space
         self.observation_space = self.get_observation_space()
@@ -1049,13 +1062,7 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
 
             self.hammer_attacks[self.keys[name]] = move_data 
 
-       
-
-
-        
-
     def step(self, action: dict[int, np.ndarray]):
-        
         # Create new rewards dict
         self.cur_action = action
         self.rewards = {agent: 0 for agent in self.agents}
@@ -1074,7 +1081,6 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         for agent in self.agents:
             player = self.players[agent]
             player.pre_process()
-         
 
         # Process player step
         for agent in self.agents:
@@ -1091,9 +1097,6 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
                 platform_vel = player.on_platform.velocity
                 player.body.velocity = pymunk.Vec2d(platform_vel.x, platform_vel.y)
 
-            
-
-
         # Process physics info
         for obj_name, obj in self.objects.items():
             obj.physics_process(self.dt)
@@ -1107,6 +1110,8 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         if hasattr(self, "weapon_controller"):
             self.weapon_controller.try_pick_up_all(self.players, self.steps)
             self.weapon_controller.update(self.steps)
+            
+           
 
         truncated = self.steps >= self.max_timesteps
 
@@ -1125,10 +1130,6 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
 
     def reset(self, seed=None) -> Tuple[dict[int, np.ndarray], dict[str, Any]]:
         self.seed = seed
-
-
-
-
         self.space = pymunk.Space()
         self.dt = 1 / 30.0
         self.space.gravity = 0, 17.808
@@ -1143,6 +1144,7 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
 
         self.players: list[Player] = []
         self.camera.reset(self)
+        self.camera.scale_background(self)
         self._setup()
 
         return {agent: self.observe(agent) for agent in self.agents}, {}
@@ -1252,8 +1254,6 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         return True
         """
         return True
-        
-        
 
     def separate_player_platform(self, arbiter, space, data):
         """
@@ -1262,6 +1262,18 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         player_shape, platform_shape = arbiter.shapes
         player = player_shape.owner
         player.on_platform = None
+
+    def get_spawner_info(self) -> List[Tuple[str, Tuple[float]]]: 
+        # if not hasattr(self, "weaponcontroller"):
+        #     return []
+
+        spawners = []
+        for s in self.weapon_controller.spawners:
+            if(hasattr(s, "weapon_name")):
+                spawners.append([s.weapon_name, s.world_pos]) 
+            elif (s.active_weapon != None):
+                spawners.append(["Random", s.world_pos])
+        return spawners
 
     def _setup(self):
         # Collision fix - prevent players from colliding with each other
@@ -1326,7 +1338,7 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
 
         self.weapon_pool = WeaponPool(self.weapon_images)
         self.weapon_spawners = []
- 
+        
         self.weapon_spawners.append(WeaponSpawner(self.camera, 0, self, self.weapon_pool, pos=[random.uniform(2.6,6.5), 0+0.7], cooldown_frames=random.randint(500,700), despawn_frames=350))
         self.weapon_spawners.append(WeaponSpawner(self.camera, 1, self, self.weapon_pool, pos=[-random.uniform(2.6,6.5), 2+0.7], cooldown_frames=random.randint(500,700), despawn_frames=350))
           
@@ -3115,13 +3127,13 @@ class AnimationSprite2D(GameObject):
             'unarmednsig_scissors': [1.6],
             'unarmedrecovery': [1.0],
             'unarmeddlight': [1.2],
-            'hammerslight': [2.3],
-            'hammernlight': [2.3],
-            'hammerdlight': [1.8],
-            'hammersair': [1.8],
-            'hammerdair': [1.8],
-            'hammernair': [2.1],
-            'hammergp': [2.1],
+            'hammerslight': [2.3/1.5],
+            'hammernlight': [2.3/1.5],
+            'hammerdlight': [1.8/1.5],
+            'hammersair': [1.8/1.5],
+            'hammerdair': [1.8/1.5],
+            'hammernair': [2.1/1.5],
+            'hammergp': [2.1/1.5],
         }
 
         self.color_mapping = {self.albert_palette[key]: self.kai_palette[key] for key in self.albert_palette}
@@ -4203,10 +4215,7 @@ class WeaponSpawner:
         if w is None: return False 
         if(player.weapon != "Punch"):
             return False
-        # --- get weapon center in WORLD units ---
-
-
-
+        
         #spear_img = pygame.Surface((40,16), pygame.SRCALPHA)
         #hitbox_size = Capsule.get_hitbox_size(290//2, 320//2)
         #self.hurtbox_collider = CapsuleCollider(center=(0, 0), width=hitbox_size[0], height=hitbox_size[1])
@@ -4235,8 +4244,9 @@ class WeaponSpawner:
         
         if not pressed or not collided: return False
         print(f'collided {w.name}, {pressed}, {collided}')
-        
-        player.weapon = w.name
+        player.weapon = w.name #kaden
+        player.env.weapon_equip_signal.emit(agent='player' if player.agent_id == 0 else 'opponent')#kaden
+
             # --- NEW: VFX pickup one-shot -> hidden
         if self.vfx:
             self.vfx.show_pickup()
@@ -4310,8 +4320,14 @@ class WeaponSpawner:
                 self.spawn_weapon(current_frame)
                 self.flag = False
 
-    def spawn_weapon(self, current_frame):#martin
-        self.world_pos = [random.randint(-5,5),1.75]
+    def spawn_weapon(self, current_frame):
+        y_pos = self.world_pos[1]
+        if(y_pos == 0+0.7):
+           x_pos = random.uniform(2.6, 6.5)
+        else:
+           x_pos = -random.uniform(2.6, 6.5)
+    
+        self.world_pos = [x_pos,y_pos]
         
         name = 'Spear' if random.randint(0, 1) == 0 else 'Hammer'
 
@@ -4509,7 +4525,8 @@ class DroppedWeaponSpawner(WeaponSpawner):
         if not pressed or not collided: return False
       
         print(f'pickup {w.name}, {pressed}, {collided}')
-        player.weapon = w.name
+        player.weapon = w.name #kaden
+        player.env.weapon_equip_signal.emit(agent='player' if player.agent_id == 0 else 'opponent')#kaden
             # --- NEW: VFX pickup one-shot -> hidden
         if self.vfx:
             self.vfx.show_pickup()
@@ -4584,7 +4601,7 @@ class DroppedWeaponSpawner(WeaponSpawner):
 
 
                     print(f"[FRAME {wb.steps}] Player {idx} dropped '{current_weapon}' spawner at {pos} (id {new_id}).")
-
+                    #kaden
                     # player loses weapon → back to Punch
                     player.weapon = "Punch"
                     player.attack_anims = {
@@ -4600,6 +4617,7 @@ class DroppedWeaponSpawner(WeaponSpawner):
                         MoveType.RECOVERY : ('alup', 'unarmedrecovery'),
                         MoveType.GROUNDPOUND : ('algroundpound', {16: ['unarmedgp', 'unarmedgp_held'], 17: 'unarmedgp_end', 18: 'unarmedgp_end', 19: 'unarmedgp_end'}),
                     }
+                    player.env.weapon_drop_signal.emit(agent='player' if player.agent_id == 0 else 'opponent')#kaden
                     
 
 # ### Hitbox and Hurtbox

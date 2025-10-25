@@ -20,7 +20,7 @@
           "fixedForce": 40,
           "hitboxes": [
             {
-              "xOffset": 248,
+              "xOffset": 200,
               "yOffset": -14,
               "width": 138,
               "height": 52
@@ -37,7 +37,7 @@
               },
               "dealtPositionTarget": {
                 "active": true,
-                "xOffset": 228,
+                "xOffset": 150,
                 "yOffset": -84
               },
               "hitVelocitySetXY": {
@@ -56,7 +56,7 @@
           "fixedForce": 40,
           "hitboxes": [
             {
-              "xOffset": 247,
+              "xOffset": 200,
               "yOffset": -15,
               "width": 136,
               "height": 58
@@ -97,7 +97,7 @@
           "fixedForce": 40,
           "hitboxes": [
             {
-              "xOffset": 257,
+              "xOffset": 200,
               "yOffset": 41,
               "width": 116,
               "height": 58
@@ -108,7 +108,7 @@
               "frame": 4,
               "dealtPositionTarget": {
                 "active": true,
-                "xOffset": 268,
+                "xOffset": 210,
                 "yOffset": -84
               },
               "hitVelocitySetXY": {
@@ -137,7 +137,7 @@
           "fixedForce": 67,
           "hitboxes": [
             {
-              "xOffset": 270,
+              "xOffset": 230,
               "yOffset": 16,
               "width": 116,
               "height": 56

@@ -114,37 +114,37 @@
           "fixedForce": 65,
           "hitboxes": [
             {
-              "xOffset": 303,
+              "xOffset": 203,
               "yOffset": 32,
               "width": 212,
               "height": 92
             },
             {
-              "xOffset": 288,
+              "xOffset": 188,
               "yOffset": -27,
               "width": 176,
               "height": 62
             },
             {
-              "xOffset": 249,
+              "xOffset": 149,
               "yOffset": -79,
               "width": 160,
               "height": 66
             },
             {
-              "xOffset": 211,
+              "xOffset": 111,
               "yOffset": -116,
               "width": 142,
               "height": 52
             },
             {
-              "xOffset": 179,
+              "xOffset": 79,
               "yOffset": -144,
               "width": 124,
               "height": 34
             },
             {
-              "xOffset": 156,
+              "xOffset": 56,
               "yOffset": -161,
               "width": 112,
               "height": 36
@@ -170,19 +170,19 @@
           "fixedForce": 65,
           "hitboxes": [
             {
-              "xOffset": 327,
+              "xOffset": 227,
               "yOffset": 64,
               "width": 194,
               "height": 30
             },
             {
-              "xOffset": 324,
+              "xOffset": 224,
               "yOffset": 32,
               "width": 230,
               "height": 80
             },
             {
-              "xOffset": 314,
+              "xOffset": 214,
               "yOffset": -22,
               "width": 188,
               "height": 44
