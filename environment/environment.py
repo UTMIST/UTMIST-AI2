@@ -3583,9 +3583,6 @@ class Player(GameObject):
             url = "https://drive.google.com/file/d/1F2MJQ5enUPVtyi3s410PUuv8LiWr8qCz/view?usp=sharing"
             gdown.download(url, output=data_path, fuzzy=True)
 
-        # check if directory
-        print("Downloaded!")
-
         self.assets_loaded = True
 
 

@@ -13,6 +13,9 @@ b) Continue training from a specific timestep given an input `file_path`
 # ----------------------------- IMPORTS -----------------------------
 # -------------------------------------------------------------------
 
+import torch 
+import gymnasium as gym
+from torch.nn import functional as F
 from torch import nn as nn
 import numpy as np
 import pygame
@@ -252,6 +255,87 @@ class ClockworkAgent(Agent):
         self.steps += 1  # Increment step counter
         return action
     
+class MLPPolicy(nn.Module):
+    def __init__(self, obs_dim: int = 64, action_dim: int = 10, hidden_dim: int = 64):
+        """
+        A 3-layer MLP policy:
+        obs -> Linear(hidden_dim) -> ReLU -> Linear(hidden_dim) -> ReLU -> Linear(action_dim)
+        """
+        super(MLPPolicy, self).__init__()
+
+        # Input layer
+        self.fc1 = nn.Linear(obs_dim, hidden_dim, dtype=torch.float32)
+        # Hidden layer
+        self.fc2 = nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32)
+        # Output layer
+        self.fc3 = nn.Linear(hidden_dim, hidden_dim, dtype=torch.float32)
+
+    def forward(self, obs):
+        """
+        obs: [batch_size, obs_dim]
+        returns: [batch_size, action_dim]
+        """
+        x = F.relu(self.fc1(obs))
+        x = F.relu(self.fc2(x))
+        return self.fc3(x)
+
+class MLPExtractor(BaseFeaturesExtractor):
+    '''
+    Class that defines an MLP Base Features Extractor
+    '''
+    def __init__(self, observation_space: gym.Space, features_dim: int = 64, hidden_dim: int = 64):
+        super(MLPExtractor, self).__init__(observation_space, features_dim)
+        self.model = MLPPolicy(
+            obs_dim=observation_space.shape[0], 
+            action_dim=10,
+            hidden_dim=hidden_dim,
+        )
+    
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        return self.model(obs)
+    
+    @classmethod
+    def get_policy_kwargs(cls, features_dim: int = 64, hidden_dim: int = 64) -> dict:
+        return dict(
+            features_extractor_class=cls,
+            features_extractor_kwargs=dict(features_dim=features_dim, hidden_dim=hidden_dim) #NOTE: features_dim = 10 to match action space output
+        )
+    
+class CustomAgent(Agent):
+    def __init__(self, sb3_class: Optional[Type[BaseAlgorithm]] = PPO, file_path: str = None, extractor: BaseFeaturesExtractor = None):
+        self.sb3_class = sb3_class
+        self.extractor = extractor
+        super().__init__(file_path)
+    
+    def _initialize(self) -> None:
+        if self.file_path is None:
+            self.model = self.sb3_class("MlpPolicy", self.env, policy_kwargs=self.extractor.get_policy_kwargs(), verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01)
+            del self.env
+        else:
+            self.model = self.sb3_class.load(self.file_path)
+
+    def _gdown(self) -> str:
+        # Call gdown to your link
+        return
+
+    #def set_ignore_grad(self) -> None:
+        #self.model.set_ignore_act_grad(True)
+
+    def predict(self, obs):
+        action, _ = self.model.predict(obs)
+        return action
+
+    def save(self, file_path: str) -> None:
+        self.model.save(file_path, include=['num_timesteps'])
+
+    def learn(self, env, total_timesteps, log_interval: int = 1, verbose=0):
+        self.model.set_env(env)
+        self.model.verbose = verbose
+        self.model.learn(
+            total_timesteps=total_timesteps,
+            log_interval=log_interval,
+        )
+
 # --------------------------------------------------------------------------------
 # ----------------------------- REWARD FUNCTIONS API -----------------------------
 # --------------------------------------------------------------------------------
@@ -485,8 +569,10 @@ The main function runs training. You can change configurations such as the Agent
 '''
 if __name__ == '__main__':
     # Create agent
+    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
+
     # Start here if you want to train from scratch. e.g:
-    my_agent = RecurrentPPOAgent()
+    #my_agent = RecurrentPPOAgent()
 
     # Start here if you want to train from a specific timestep. e.g:
     #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_3/rl_model_120006_steps.zip')
@@ -505,7 +591,7 @@ if __name__ == '__main__':
         save_freq=100_000, # Save frequency
         max_saved=40, # Maximum number of saved models
         save_path='checkpoints', # Save path
-        run_name='experiment_7',
+        run_name='experiment_9',
         mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
     )
 
