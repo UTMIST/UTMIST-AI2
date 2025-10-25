@@ -5,7 +5,7 @@ from user.my_agent import SubmittedAgent
 
 my_agent = UserInputAgent()
 #Input your file path here in SubmittedAgent if you are loading a model:
-opponent = ConstantAgent()#SubmittedAgent(file_path="checkpoints/experiment_6/rl_model_78576_steps")
+opponent = SubmittedAgent(file_path="checkpoints/experiment_6/rl_model_78576_steps")
 
 match_time = 99999
 
