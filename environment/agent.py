@@ -626,7 +626,8 @@ def run_match(agent_1: Agent | partial,
             '-pix_fmt': 'yuv420p',  # Compatible with both WMP & Colab
             '-preset': 'fast',  # Faster encoding
             '-crf': '20',  # Quality-based encoding (lower = better quality)
-            '-r': '30'  # Frame rate
+            '-r': '30',  # Frame rate
+            '-vf': 'transpose=1,hflip'  # Rotate and flip for correct orientation
         })
 
     # If partial
