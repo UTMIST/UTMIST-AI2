@@ -4,8 +4,10 @@ import skvideo
 import skvideo.io
 from loguru import logger
 from IPython.display import Video
-from environment.agent import UserInputAgent, ConstantAgent, run_match, CameraResolution,  gen_reward_manager
+from environment.agent import UserInputAgent, ConstantAgent, run_match, CameraResolution
 from user.my_agent import SubmittedAgent
+from user.train_agent import gen_reward_manager
+
 try:
     from server.api import create_participant, update_validation_status
 except Exception:
