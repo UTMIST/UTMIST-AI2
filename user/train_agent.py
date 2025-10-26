@@ -12,6 +12,9 @@ b) Continue training from a specific timestep given an input `file_path`
 # -------------------------------------------------------------------
 # ----------------------------- IMPORTS -----------------------------
 # -------------------------------------------------------------------
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch 
 import gymnasium as gym
