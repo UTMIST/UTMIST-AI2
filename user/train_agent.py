@@ -493,6 +493,20 @@ def head_to_opponent(
 
     return reward
 
+def head_to_opponent_kinda(
+    env: WarehouseBrawl,
+) -> float:
+
+    # Get player object from the environment
+    player: Player = env.objects["player"]
+    opponent: Player = env.objects["opponent"]
+
+    # Apply penalty if the player is in the danger zone
+    multiplier = -1 if player.body.position.x > opponent.body.position.x else 1
+    reward = multiplier * (player.body.position.x - player.prev_x)
+
+    return reward if player.stocks < opponent.stocks else 0
+
 def holding_more_than_3_keys(
     env: WarehouseBrawl,
 ) -> float:
@@ -548,14 +562,14 @@ def gen_reward_manager():
         'damage_interaction_reward': RewTerm(func=damage_interaction_reward, weight=5.0),
         'fly': RewTerm(func=in_state_reward, weight=2, params={'desired_state': InAirState}),
         #'head_to_middle_reward': RewTerm(func=head_to_middle_reward, weight=0.01),
-        #'head_to_opponent': RewTerm(func=head_to_opponent, weight=0.05),
+        'head_to_opponent': RewTerm(func=head_to_opponent_kinda, weight=0.5),
         'penalize_attack_reward': RewTerm(func=in_state_reward, weight=-1, params={'desired_state': AttackState}),
-        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-2),
+        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-4),
         #'taunt_reward': RewTerm(func=in_state_reward, weight=0.2, params={'desired_state': TauntState}),
     }
     signal_subscriptions = {
-        'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=50)),
-        'on_knockout_reward': ('knockout_signal', RewTerm(func=on_knockout_reward, weight=13)),
+        'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=200)),
+        'on_knockout_reward': ('knockout_signal', RewTerm(func=on_knockout_reward, weight=20)),
         # 'on_combo_reward': ('hit_during_stun', RewTerm(func=on_combo_reward, weight=5)),
         # 'on_equip_reward': ('weapon_equip_signal', RewTerm(func=on_equip_reward, weight=10)),
         # 'on_drop_reward': ('weapon_drop_signal', RewTerm(func=on_drop_reward, weight=15))
@@ -570,7 +584,7 @@ The main function runs training. You can change configurations such as the Agent
 '''
 if __name__ == '__main__':
     # Create agent
-    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor, file_path='checkpoints/experiment_0/rl_model_1004400_steps.zip')
+    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
 
     # Start here if you want to train from scratch. e.g:
     #my_agent = RecurrentPPOAgent()
@@ -609,6 +623,6 @@ if __name__ == '__main__':
         save_handler,
         opponent_cfg,
         CameraResolution.LOW,
-        train_timesteps=300_000,
+        train_timesteps=1000_000,
         train_logging=TrainLogging.PLOT
     )
