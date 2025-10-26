@@ -76,6 +76,22 @@ class SB3Agent(Agent):
             log_interval=log_interval,
         )
 
+def linear_schedule(initial_value: float) -> Callable[[float], float]:
+    """
+    Linear learning rate schedule.
+
+    :param initial_value: The initial learning rate.
+    :return: A function that takes the current progress remaining
+             (from 1.0 to 0.0) and returns the current learning rate.
+    """
+    def func(progress_remaining: float) -> float:
+        """
+        Progress_remaining will decrease from 1.0 to 0.0
+        """
+        return progress_remaining * initial_value
+
+    return func
+
 class RecurrentPPOAgent(Agent):
     '''
     RecurrentPPOAgent:
@@ -92,20 +108,23 @@ class RecurrentPPOAgent(Agent):
     def _initialize(self) -> None:
         if self.file_path is None:
             policy_kwargs = {
-                'activation_fn': nn.ReLU,
+                'optimizer_class': torch.optim.AdamW,
+                'optimizer_kwargs': {'weight_decay': 1e-2},
+                'activation_fn': nn.GELU,
                 'lstm_hidden_size': 512,
-                'net_arch': [dict(pi=[32, 32], vf=[32, 32])],
+                'net_arch': [dict(pi=[256, 256], vf=[256, 256])],
                 'shared_lstm': True,
                 'enable_critic_lstm': False,
-                'share_features_extractor': True,
-
+                'share_features_extractor': True
             }
             self.model = RecurrentPPO("MlpLstmPolicy",
                                       self.env,
+                                      learning_rate=linear_schedule(1e-4),
                                       verbose=0,
                                       n_steps=30*90*20,
-                                      batch_size=16,
-                                      ent_coef=0.05,
+                                      batch_size=256,
+                                      gamma=0.995,
+                                      ent_coef=0.01,
                                       policy_kwargs=policy_kwargs)
             del self.env
         else:
@@ -170,6 +189,96 @@ class BasedAgent(Agent):
             action = self.act_helper.press_keys(['j'], action)
         return action
 
+class GoatedAgent(Agent):
+
+    def __init__(
+            self,
+            opp_initial_pos: int = 0,
+            *args,
+            **kwargs
+    ):
+        super().__init__(*args, **kwargs)
+        self.time = 0
+        self.opp_initial_pos = opp_initial_pos
+
+    def predict(self, obs):
+        self.time += 1
+        pos = self.obs_helper.get_section(obs, 'player_pos')
+        vel = self.obs_helper.get_section(obs, 'player_vel') # low=[-1, -1], high=[1, 1]
+        facing = self.obs_helper.get_section(obs, 'player_facing')
+        opp_pos = self.obs_helper.get_section(obs, 'opponent_pos')
+        opp_vel = self.obs_helper.get_section(obs, 'opponent_vel')
+        opp_hp = self.obs_helper.get_section(obs, 'opponent_damage')*700
+        opp_KO = self.obs_helper.get_section(obs, 'opponent_state') in [5, 11]
+        opp_in_air = self.obs_helper.get_section(obs, 'opponent_state') in [6, 11]
+        opp_attack = self.obs_helper.get_section(obs, 'opponent_state') in [8, 11]
+        action = self.act_helper.zeros()
+
+
+        if (self.time == 15):
+            self.opp_initial_pos = opp_pos[0] - 3 if (opp_pos[0] > 0) else opp_pos[0] + 3
+
+        # If off the edge, come back
+        if pos[0] > (10.67/2 - 1):
+            action = self.act_helper.press_keys(['a'])
+        elif pos[0] < (-10.67/2 + 1):
+            action = self.act_helper.press_keys(['d'])
+        elif not opp_KO:
+            if (vel[0] < 1 and vel[0] > -1) and (opp_pos[0] > -10.7/2 and opp_pos[0] < 10.7/2 - 1):
+              # Head toward opponent
+              if ((opp_pos[0] - 1.2) > pos[0]):
+                  action = self.act_helper.press_keys(['d'])
+              elif((opp_pos[0] + 1.2) < pos[0]):
+                  action = self.act_helper.press_keys(['a'])
+        elif opp_KO:
+            if abs(pos[0]) > abs(self.opp_initial_pos):
+                # Head toward middle
+                if (self.opp_initial_pos > 0):
+                    if (pos[0] < self.opp_initial_pos):
+                        action = self.act_helper.press_keys(['d'])
+                    else:
+                        action = self.act_helper.press_keys(['a'])
+                else:
+                    if (pos[0] > self.opp_initial_pos):
+                        action = self.act_helper.press_keys(['a'])
+                    else:
+                        action = self.act_helper.press_keys(['d'])
+            else:
+                if (self.opp_initial_pos > 0 and not (facing[0] == 1)):
+                    action = self.act_helper.press_keys(['d'])
+
+                elif (self.opp_initial_pos < 0 and not (facing[0] == 0)):
+                    action = self.act_helper.press_keys(['a'])
+
+
+        # Note: Passing in partial action
+        # Jump if below map or opponent is below you (situational for only above edge)
+        if (pos[1] >= 1.75 or pos[1] < (opp_pos[1]-0.2)) and self.time % 2 == 0 and not opp_KO:
+            action = self.act_helper.press_keys(['space'], action)
+
+        # Attack if near
+        # Attack spamming near edging needs correction to avoid attack dashing off
+
+        if (((pos[0] - opp_pos[0])**2 + (pos[1] - opp_pos[1])**2 < 4.0) or (abs(pos[0]-opp_pos[0]) < 0.2 and opp_pos[1] - 0.1 < pos[1])):
+            if self.time % 4 == 0:
+                if (opp_hp < 75 or (pos[1] > opp_pos[1] + 3)):
+                    action = self.act_helper.press_keys(['j'], action)
+                    if (pos[1] > opp_pos[1] + 3) and self.time % 2 == 0 and not opp_KO and opp_in_air:
+                      action = self.act_helper.press_keys(['w'], action)
+                else:
+                    action = self.act_helper.press_keys(['k','s'], action)
+            if self.time % 5 == 0:
+                action = self.act_helper.press_keys(['k'], action)
+            if self.time % 3 == 0 and opp_attack:
+                action = self.act_helper.press_keys(['l'], action)
+            if (pos[0] < (10.67/2 - 1) and pos[0] > (-10.67/2 + 1) and not opp_attack):
+                if (opp_pos[0] < pos[0]) and facing[0] == 1:
+                    action = self.act_helper.press_keys(['a'])
+                elif(opp_pos[0] > pos[0]) and facing[0] == 0:
+                    action = self.act_helper.press_keys(['d'])
+
+        return action
+    
 class UserInputAgent(Agent):
     '''
     UserInputAgent:
@@ -278,7 +387,7 @@ class MLPPolicy(nn.Module):
         x = F.relu(self.fc1(obs))
         x = F.relu(self.fc2(x))
         return self.fc3(x)
-
+    
 class MLPExtractor(BaseFeaturesExtractor):
     '''
     Class that defines an MLP Base Features Extractor
@@ -302,6 +411,7 @@ class MLPExtractor(BaseFeaturesExtractor):
         )
     
 class CustomAgent(Agent):
+    
     def __init__(self, sb3_class: Optional[Type[BaseAlgorithm]] = PPO, file_path: str = None, extractor: BaseFeaturesExtractor = None):
         self.sb3_class = sb3_class
         self.extractor = extractor
@@ -335,6 +445,7 @@ class CustomAgent(Agent):
             total_timesteps=total_timesteps,
             log_interval=log_interval,
         )
+
 
 # --------------------------------------------------------------------------------
 # ----------------------------- REWARD FUNCTIONS API -----------------------------
@@ -506,6 +617,18 @@ def holding_more_than_3_keys(
         return env.dt
     return 0
 
+def holding_weapon(
+    env: WarehouseBrawl,
+) -> float:
+    
+    # Get player object from the environment
+    player: Player = env.objects["player"]
+
+    # Apply penalty if the player is holding more than 3 keys
+    if player.weapon is not "Punch":
+        return 1
+    return 0
+
 def on_win_reward(env: WarehouseBrawl, agent: str) -> float:
     if agent == 'player':
         return 1.0
@@ -513,15 +636,17 @@ def on_win_reward(env: WarehouseBrawl, agent: str) -> float:
         return -1.0
 
 def on_knockout_reward(env: WarehouseBrawl, agent: str) -> float:
+    player: Player = env.objects["player"]
     if agent == 'player':
-        return -1.0
+        multiplier = 5 if player.damage_taken_total > 50 else 1
+        return -1.0 * multiplier
     else:
         return 1.0
     
 def on_equip_reward(env: WarehouseBrawl, agent: str) -> float:
     if agent == "player":
         if env.objects["player"].weapon == "Hammer":
-            return 2.0
+            return 1.0
         elif env.objects["player"].weapon == "Spear":
             return 1.0
     return 0.0
@@ -546,10 +671,11 @@ def gen_reward_manager():
         #'target_height_reward': RewTerm(func=base_height_l2, weight=0.0, params={'target_height': -4, 'obj_name': 'player'}),
         'danger_zone_reward': RewTerm(func=danger_zone_reward, weight=0.5),
         'damage_interaction_reward': RewTerm(func=damage_interaction_reward, weight=1.0),
-        #'head_to_middle_reward': RewTerm(func=head_to_middle_reward, weight=0.01),
-        #'head_to_opponent': RewTerm(func=head_to_opponent, weight=0.05),
+        'head_to_middle_reward': RewTerm(func=head_to_middle_reward, weight=0.01),
+        'head_to_opponent': RewTerm(func=head_to_opponent, weight=0.1),
         'penalize_attack_reward': RewTerm(func=in_state_reward, weight=-0.04, params={'desired_state': AttackState}),
-        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-0.01),
+        'holding_weapon': RewTerm(func=holding_weapon, weight=0.001),
+        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-0.03),
         #'taunt_reward': RewTerm(func=in_state_reward, weight=0.2, params={'desired_state': TauntState}),
     }
     signal_subscriptions = {
@@ -569,13 +695,13 @@ The main function runs training. You can change configurations such as the Agent
 '''
 if __name__ == '__main__':
     # Create agent
-    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
+    # my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
 
     # Start here if you want to train from scratch. e.g:
-    #my_agent = RecurrentPPOAgent()
+    # my_agent = RecurrentPPOAgent()
 
     # Start here if you want to train from a specific timestep. e.g:
-    #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_3/rl_model_120006_steps.zip')
+    my_agent = RecurrentPPOAgent(file_path="checkpoints/experiment_9/rl_model_1026000_steps.zip")
 
     # Reward manager
     reward_manager = gen_reward_manager()
@@ -591,7 +717,7 @@ if __name__ == '__main__':
         save_freq=100_000, # Save frequency
         max_saved=40, # Maximum number of saved models
         save_path='checkpoints', # Save path
-        run_name='experiment_9',
+        run_name='experiment_10',
         mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
     )
 
@@ -600,6 +726,7 @@ if __name__ == '__main__':
                     'self_play': (8, selfplay_handler),
                     'constant_agent': (0.5, partial(ConstantAgent)),
                     'based_agent': (1.5, partial(BasedAgent)),
+                    'goated_agent': (6.5, partial(GoatedAgent)),
                 }
     opponent_cfg = OpponentsCfg(opponents=opponent_specification)
 
@@ -608,6 +735,6 @@ if __name__ == '__main__':
         save_handler,
         opponent_cfg,
         CameraResolution.LOW,
-        train_timesteps=1_000_000_000,
+        train_timesteps=1_000_000,
         train_logging=TrainLogging.PLOT
     )
