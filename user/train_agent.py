@@ -584,7 +584,8 @@ The main function runs training. You can change configurations such as the Agent
 '''
 if __name__ == '__main__':
     # Create agent
-    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
+    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor, file_path='checkpoints/experiment_2/rl_model_1004400_steps.zip')
+
 
     # Start here if you want to train from scratch. e.g:
     #my_agent = RecurrentPPOAgent()
@@ -606,7 +607,7 @@ if __name__ == '__main__':
         save_freq=100_000, # Save frequency
         max_saved=40, # Maximum number of saved models
         save_path='checkpoints', # Save path
-        run_name='experiment_1',
+        run_name='experiment_3',
         mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
     )
 
@@ -623,6 +624,6 @@ if __name__ == '__main__':
         save_handler,
         opponent_cfg,
         CameraResolution.LOW,
-        train_timesteps=1000_000,
+        train_timesteps=5000_000,
         train_logging=TrainLogging.PLOT
     )
