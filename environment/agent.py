@@ -656,9 +656,11 @@ def run_match(agent_1: Agent | partial,
           reward_manager.process(env, 1 / env.fps)
 
       if video_path is not None:
-          img = env.render()
-          writer.writeFrame(img)
-          del img
+            img = env.render()
+            img = np.rot90(img, k=-1)  #video output rotate fix
+            img = np.fliplr(img)  # Mirror/flip the image horizontally
+            writer.writeFrame(img) 
+            del img
 
       if terminated or truncated:
           break
