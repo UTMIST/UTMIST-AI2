@@ -32,6 +32,12 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         self.win_signal = Signal(self)
         self.hit_during_stun = Signal(self)
 
+        # Shubham
+        # Combo tracking
+        self.current_combo_count = 0
+        self.last_damage_time = 0
+        self.combo_reset_time = 0.8 # secoinds allowed between hits to count as a combo. Could be any number but I chose 0.8 bcz anything less than this would be too short a duration and 1 second would be too long
+
         # Observation Space
         self.observation_space = self.get_observation_space()
 
@@ -207,7 +213,23 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
                 platform_vel = player.on_platform.velocity
                 player.body.velocity += pymunk.Vec2d(platform_vel.x, platform_vel.y)
             
+        #Shubham
+        # Combo Tracking
+        import time
+        player = self.objects["player"]
+        opponent = self.objects["opponent"]
 
+        # check if opp took damage this fame
+        if opponent.damage_taken_this_frame > 0:
+            now = time.time()
+            if now - self.last_damage_time <= self.combo_reset_time:
+                self.current_combo_count += 1
+            else:
+                self.current_combo_count = 1
+            self.last_damage_time = now
+        else:
+            if time.time() - self.last_damage_time > self.combo_reset_time:
+                self.current_combo_count = 0
 
         # Process physics info
         for obj_name, obj in self.objects.items():

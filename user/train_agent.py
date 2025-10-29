@@ -538,6 +538,28 @@ def on_combo_reward(env: WarehouseBrawl, agent: str) -> float:
     else:
         return 1.0
 
+# Shubham
+def combo_length_reward(env: WarehouseBrawl, combo_weight: float = 1.0) -> float:
+    """this is a reward function that will reward landing combos"""
+    player: Player = env.objects["player"]
+    combo_count = getattr(player, "current_combo_count", 0)
+    # make it quadratic and not linear so that the bot favours getting combos off more since combos deal more damage
+    return (combo_count ** 2) * combo_weight * env.dt
+
+def combo_damage_reward(env: WarehouseBrawl, weight: float = 0.1) -> float:
+    """rewards based on damage done with combos"""
+    opponent = env.objects["opponent"]
+    dmg = getattr(opponent, "damage_taken_this_frame", 0.0)
+    return dmg * weight
+
+def survival_and_adaptivity_reward(env: WarehouseBrawl, weight: float = 0.5) -> float:
+    """continuous reward for avoiding damage and keeping center stage"""
+    player = env.objects["player"]
+    damage_taken = player.damage_taken_this_frame
+    # keep near center x ~ 0 while staying alive
+    center_dist = abs(player.body.position.x)
+    return (-damage_taken * 0.5 + max(0, 1 - center_dist/6.0) * 0.1) * weight * env.dt
+
 '''
 Add your dictionary of RewardFunctions here using RewTerms
 '''
@@ -551,6 +573,9 @@ def gen_reward_manager():
         'penalize_attack_reward': RewTerm(func=in_state_reward, weight=-0.04, params={'desired_state': AttackState}),
         'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-0.01),
         #'taunt_reward': RewTerm(func=in_state_reward, weight=0.2, params={'desired_state': TauntState}),
+        'combo_length_reward': RewTerm(func=combo_length_reward, weight=0.4),
+        'combo_damage_reward': RewTerm(func=combo_damage_reward, weight=0.2),
+        'survival_and_adaptivity_reward': RewTerm(func=survival_and_adaptivity_reward, weight=0.6),
     }
     signal_subscriptions = {
         'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=50)),
@@ -596,10 +621,15 @@ if __name__ == '__main__':
     )
 
     # Set opponent settings here:
+    # opponent_specification = {
+    #                 'self_play': (8, selfplay_handler),
+    #                 'constant_agent': (0.5, partial(ConstantAgent)),
+    #                 'based_agent': (1.5, partial(BasedAgent)),
+    #             }
     opponent_specification = {
-                    'self_play': (8, selfplay_handler),
-                    'constant_agent': (0.5, partial(ConstantAgent)),
-                    'based_agent': (1.5, partial(BasedAgent)),
+                    'based_agent': (2.0, partial(BasedAgent)),
+                    'constant_agent': (1.0, partial(ConstantAgent)),
+                    'self_play': (0.1, selfplay_handler),  # small at start
                 }
     opponent_cfg = OpponentsCfg(opponents=opponent_specification)
 
@@ -608,6 +638,6 @@ if __name__ == '__main__':
         save_handler,
         opponent_cfg,
         CameraResolution.LOW,
-        train_timesteps=1_000_000_000,
+        train_timesteps=1_000,#1_000_000_000,
         train_logging=TrainLogging.PLOT
     )
