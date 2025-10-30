@@ -14,6 +14,8 @@ from PIL import Image, ImageSequence
 import matplotlib.pyplot as plt
 
 import gdown, os, math, random, shutil, json
+import subprocess as sp
+import time
 
 import numpy as np
 import torch
@@ -51,7 +53,9 @@ class Agent(ABC):
 
     def __init__(
             self,
-            file_path: Optional[str] = None
+            file_path: Optional[str] = None,
+            tensorboard_log: Optional[str] = "checkpoints/tb_logs/",
+            tb_log_name: Optional[str] = "run"
         ):
 
         # If no supplied file_path, load from gdown (optional file_path returned)
@@ -60,6 +64,8 @@ class Agent(ABC):
 
         self.file_path: Optional[str] = file_path
         self.initialized = False
+        self.tensorboard_log = tensorboard_log
+        self.tb_log_name = tb_log_name
 
     def get_env_info(self, env):
         if isinstance(env, Monitor):
@@ -875,17 +881,19 @@ class SB3Agent(Agent):
     def __init__(
             self,
             sb3_class: Optional[Type[BaseAlgorithm]] = PPO,
-            file_path: Optional[str] = None
+            file_path: Optional[str] = None,
+            tensorboard_log: Optional[str] = "checkpoints/tb_logs/",
+            tb_log_name: Optional[str] = "run"
     ):
         self.sb3_class = sb3_class
-        super().__init__(file_path)
+        super().__init__(file_path, tensorboard_log)
 
     def _initialize(self) -> None:
         if self.file_path is None:
-            self.model = self.sb3_class("MlpPolicy", self.env, verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01)
+            self.model = self.sb3_class("MlpPolicy", self.env, verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01, tensorboard_log=self.tensorboard_log)
             del self.env
         else:
-            self.model = self.sb3_class.load(self.file_path)
+            self.model = self.sb3_class.load(self.file_path, tensorboard_log=self.tensorboard_log)
 
     def _gdown(self) -> str:
         # Call gdown to your link
@@ -907,6 +915,7 @@ class SB3Agent(Agent):
         self.model.learn(
             total_timesteps=total_timesteps,
             log_interval=log_interval,
+            tb_log_name=self.tb_log_name
         )
 
 from sb3_contrib import RecurrentPPO
@@ -915,9 +924,10 @@ class RecurrentPPOAgent(Agent):
 
     def __init__(
             self,
-            file_path: Optional[str] = None
+            file_path: Optional[str] = None,
+            tensorboard_log: Optional[str] = "checkpoints/tb_logs/"  
     ):
-        super().__init__(file_path)
+        super().__init__(file_path, tensorboard_log)
         self.lstm_states = None
         self.episode_starts = np.ones((1,), dtype=bool)
 
@@ -938,10 +948,11 @@ class RecurrentPPOAgent(Agent):
                                       n_steps=30*90*20,
                                       batch_size=16,
                                       ent_coef=0.05,
-                                      policy_kwargs=policy_kwargs)
+                                      policy_kwargs=policy_kwargs,
+                                      tensorboard_log=self.tensorboard_log)
             del self.env
         else:
-            self.model = RecurrentPPO.load(self.file_path)
+            self.model = RecurrentPPO.load(self.file_path, tensorboard_log=self.tensorboard_log)
 
     def reset(self) -> None:
         self.episode_starts = True
@@ -957,7 +968,7 @@ class RecurrentPPOAgent(Agent):
     def learn(self, env, total_timesteps, log_interval: int = 2, verbose=0):
         self.model.set_env(env)
         self.model.verbose = verbose
-        self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval)
+        self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval, tb_log_name=self.tb_log_name)
 
 
 # ## Training Function
@@ -998,6 +1009,23 @@ def plot_results(log_folder, title="Learning Curve"):
     # save to file
     plt.savefig(log_folder + title + ".png")
 
+def launch_tensorboard(logdir: str = "checkpoints/tb_logs/", port: int = 6006):
+    """
+    Launch TensorBoard in a background subprocess.
+    """
+    # Ensure directory exists
+    os.makedirs(logdir, exist_ok=True)
+
+    # Launch TensorBoard in background
+    tb_process = sp.Popen(
+        ["tensorboard", f"--logdir {logdir}", f"--port {port}"],
+        stdout=sp.DEVNULL,
+        stderr=sp.STDOUT,
+    )
+    time.sleep(2)  # let it start up
+    print(f"TensorBoard running at http://localhost:{port}")
+    return tb_process
+
 def train(agent: Agent,
           reward_manager: RewardManager,
           save_handler: Optional[SaveHandler]=None,
@@ -1028,7 +1056,10 @@ def train(agent: Agent,
         agent.learn(env, total_timesteps=train_timesteps, verbose=1)
         base_env.on_training_end()
     except KeyboardInterrupt:
-        pass
+        if save_handler is not None:
+            save_handler.agent.update_num_timesteps(save_handler.num_timesteps)
+            save_handler.save_agent()
+            plot_results(log_dir)
 
     env.close()
 

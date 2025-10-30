@@ -25,3 +25,5 @@ torch==2.4.1
 tqdm==4.67.1
 transformers==4.48.2
 supabase
+tensorboard==2.16.0
+tensorboard-data-server==0.7.2

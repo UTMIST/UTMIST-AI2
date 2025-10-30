@@ -26,6 +26,7 @@ from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
 
 from environment.agent import *
 from typing import Optional, Type, List, Tuple
+import subprocess as sp
 
 # -------------------------------------------------------------------------
 # ----------------------------- AGENT CLASSES -----------------------------
@@ -42,17 +43,19 @@ class SB3Agent(Agent):
     def __init__(
             self,
             sb3_class: Optional[Type[BaseAlgorithm]] = PPO,
-            file_path: Optional[str] = None
+            file_path: Optional[str] = None,
+            tensorboard_log: Optional[str] = "checkpoints/tb_logs/",
+            tb_log_name: Optional[str] = "run"
     ):
         self.sb3_class = sb3_class
-        super().__init__(file_path)
+        super().__init__(file_path, tensorboard_log)
 
     def _initialize(self) -> None:
         if self.file_path is None:
-            self.model = self.sb3_class("MlpPolicy", self.env, verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01)
+            self.model = self.sb3_class("MlpPolicy", self.env, verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01, tensorboard_log=self.tensorboard_log)
             del self.env
         else:
-            self.model = self.sb3_class.load(self.file_path)
+            self.model = self.sb3_class.load(self.file_path, tensorboard_log=self.tensorboard_log)
 
     def _gdown(self) -> str:
         # Call gdown to your link
@@ -74,6 +77,7 @@ class SB3Agent(Agent):
         self.model.learn(
             total_timesteps=total_timesteps,
             log_interval=log_interval,
+            tb_log_name=self.tb_log_name
         )
 
 class RecurrentPPOAgent(Agent):
@@ -83,9 +87,10 @@ class RecurrentPPOAgent(Agent):
     '''
     def __init__(
             self,
-            file_path: Optional[str] = None
+            file_path: Optional[str] = None,
+            tensorboard_log: Optional[str] = "checkpoints/tb_logs"
     ):
-        super().__init__(file_path)
+        super().__init__(file_path, tensorboard_log)
         self.lstm_states = None
         self.episode_starts = np.ones((1,), dtype=bool)
 
@@ -106,10 +111,11 @@ class RecurrentPPOAgent(Agent):
                                       n_steps=30*90*20,
                                       batch_size=16,
                                       ent_coef=0.05,
-                                      policy_kwargs=policy_kwargs)
+                                      policy_kwargs=policy_kwargs,
+                                      tensorboard_log=self.tensorboard_log)
             del self.env
         else:
-            self.model = RecurrentPPO.load(self.file_path)
+            self.model = RecurrentPPO.load(self.file_path, tensorboard_log=self.tensorboard_log)
 
     def reset(self) -> None:
         self.episode_starts = True
@@ -125,7 +131,7 @@ class RecurrentPPOAgent(Agent):
     def learn(self, env, total_timesteps, log_interval: int = 2, verbose=0):
         self.model.set_env(env)
         self.model.verbose = verbose
-        self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval)
+        self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval, tb_log_name=self.tb_log_name)
 
 class BasedAgent(Agent):
     '''
@@ -298,21 +304,21 @@ class MLPExtractor(BaseFeaturesExtractor):
     def get_policy_kwargs(cls, features_dim: int = 64, hidden_dim: int = 64) -> dict:
         return dict(
             features_extractor_class=cls,
-            features_extractor_kwargs=dict(features_dim=features_dim, hidden_dim=hidden_dim) #NOTE: features_dim = 10 to match action space output
+            features_extractor_kwargs=dict(features_dim=features_dim, hidden_dim=hidden_dim)
         )
     
 class CustomAgent(Agent):
-    def __init__(self, sb3_class: Optional[Type[BaseAlgorithm]] = PPO, file_path: str = None, extractor: BaseFeaturesExtractor = None):
+    def __init__(self, sb3_class: Optional[Type[BaseAlgorithm]] = PPO, file_path: str = None, extractor: BaseFeaturesExtractor = None, tensorboard_log: Optional[str] = "checkpoints/tb_logs/"):
         self.sb3_class = sb3_class
         self.extractor = extractor
-        super().__init__(file_path)
+        super().__init__(file_path, tensorboard_log)
     
     def _initialize(self) -> None:
         if self.file_path is None:
-            self.model = self.sb3_class("MlpPolicy", self.env, policy_kwargs=self.extractor.get_policy_kwargs(), verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01)
+            self.model = self.sb3_class("MlpPolicy", self.env, policy_kwargs=self.extractor.get_policy_kwargs(), verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01, tensorboard_log=self.tensorboard_log)
             del self.env
         else:
-            self.model = self.sb3_class.load(self.file_path)
+            self.model = self.sb3_class.load(self.file_path, tensorboard_log=self.tensorboard_log)
 
     def _gdown(self) -> str:
         # Call gdown to your link
@@ -334,6 +340,7 @@ class CustomAgent(Agent):
         self.model.learn(
             total_timesteps=total_timesteps,
             log_interval=log_interval,
+            tb_log_name=self.tb_log_name
         )
 
 # --------------------------------------------------------------------------------
@@ -479,6 +486,11 @@ def head_to_middle_reward(
 
     return reward
 
+def new_reward(
+    env: WarehouseBrawl
+) -> float:
+    return 0.0
+
 def head_to_opponent(
     env: WarehouseBrawl,
 ) -> float:
@@ -568,46 +580,53 @@ def gen_reward_manager():
 The main function runs training. You can change configurations such as the Agent type or opponent specifications here.
 '''
 if __name__ == '__main__':
-    # Create agent
-    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
+    # Launch tensorboard port (IGNORE THIS)
+    tb_process = launch_tensorboard()
 
-    # Start here if you want to train from scratch. e.g:
-    #my_agent = RecurrentPPOAgent()
+    try: 
+        # Create agent
+        my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
 
-    # Start here if you want to train from a specific timestep. e.g:
-    #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_3/rl_model_120006_steps.zip')
+        # Start here if you want to train from scratch. e.g:
+        #my_agent = RecurrentPPOAgent()
+        #my_agent = SB3Agent(file_path="checkpoints/experiment_10/rl_model_81765_steps.zip")
 
-    # Reward manager
-    reward_manager = gen_reward_manager()
-    # Self-play settings
-    selfplay_handler = SelfPlayRandom(
-        partial(type(my_agent)), # Agent class and its keyword arguments
-                                 # type(my_agent) = Agent class
-    )
+        # Start here if you want to train from a specific timestep. e.g:
+        #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_9/rl_model_518484_steps.zip')
 
-    # Set save settings here:
-    save_handler = SaveHandler(
-        agent=my_agent, # Agent to save
-        save_freq=100_000, # Save frequency
-        max_saved=40, # Maximum number of saved models
-        save_path='checkpoints', # Save path
-        run_name='experiment_9',
-        mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
-    )
+        # Reward manager
+        reward_manager = gen_reward_manager()
+        # Self-play settings
+        selfplay_handler = SelfPlayRandom(
+            partial(type(my_agent)), # Agent class and its keyword arguments
+                                    # type(my_agent) = Agent class
+        )
 
-    # Set opponent settings here:
-    opponent_specification = {
-                    'self_play': (8, selfplay_handler),
-                    'constant_agent': (0.5, partial(ConstantAgent)),
-                    'based_agent': (1.5, partial(BasedAgent)),
-                }
-    opponent_cfg = OpponentsCfg(opponents=opponent_specification)
+        # Set save settings here:
+        save_handler = SaveHandler(
+            agent=my_agent, # Agent to save
+            save_freq=100_000, # Save frequency
+            max_saved=40, # Maximum number of saved models
+            save_path='checkpoints', # Save path
+            run_name='experiment_11',
+            mode=SaveHandlerMode.RESUME # Save mode, FORCE or RESUME
+        )
 
-    train(my_agent,
-        reward_manager,
-        save_handler,
-        opponent_cfg,
-        CameraResolution.LOW,
-        train_timesteps=1_000_000_000,
-        train_logging=TrainLogging.PLOT
-    )
+        # Set opponent settings here:
+        opponent_specification = {
+                        'self_play': (8, selfplay_handler),
+                        'constant_agent': (0.5, partial(ConstantAgent)),
+                        'based_agent': (1.5, partial(BasedAgent)),
+                    }
+        opponent_cfg = OpponentsCfg(opponents=opponent_specification)
+
+        train(my_agent,
+            reward_manager,
+            save_handler,
+            opponent_cfg,
+            CameraResolution.LOW,
+            train_timesteps=1_000_000_000,
+            train_logging=TrainLogging.PLOT
+        )
+    finally:
+        tb_process.terminate()
