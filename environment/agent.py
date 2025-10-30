@@ -545,6 +545,7 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
         }
 
         observations, rewards, terminated, truncated, info = self.raw_env.step(full_action)
+        self.opponent_obs = observations[1]
 
         if self.save_handler is not None:
             self.save_handler.process()
