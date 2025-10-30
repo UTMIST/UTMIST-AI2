@@ -1026,7 +1026,10 @@ def train(agent: Agent,
         agent.learn(env, total_timesteps=train_timesteps, verbose=1)
         base_env.on_training_end()
     except KeyboardInterrupt:
-        pass
+        if save_handler is not None:
+            save_handler.agent.update_num_timesteps(save_handler.num_timesteps)
+            save_handler.save_agent()
+
 
     env.close()
 
