@@ -26,7 +26,7 @@ jobs:
     runs-on: self-hosted
     needs: check-inputs
     container:
-      image: python:3.10
+      image: python:3.12
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
