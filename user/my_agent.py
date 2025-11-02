@@ -7,6 +7,11 @@ import numpy as np
 from typing import Optional
 from environment.agent import Agent
 
+# To run the sample TTNN model, you can uncomment the 2 lines below: 
+# import ttnn
+# from user.my_agent_tt import TTMLPPolicy
+
+
 class SubmittedAgent(Agent):
     '''
     Competitive Rule-Based Fighting Agent
@@ -46,9 +51,21 @@ class SubmittedAgent(Agent):
         self.retreat_distance = 0.50     # Too far, need to approach
         self.attack_cooldown_frames = 15 # Frames between attacks
 
+        # To run a TTNN model, you must maintain a pointer to the device and can be done by 
+        # uncommmenting the line below to use the device pointer
+        # self.mesh_device = ttnn.open_mesh_device(ttnn.MeshShape(1,1))
+
     def _initialize(self) -> None:
         """Initialize agent - no model needed for rule-based"""
         pass
+
+        # To run the sample TTNN model during inference, you can uncomment the 5 lines below:
+        # This assumes that your self.model.policy has the MLPPolicy architecture defined in `train_agent.py` or `my_agent_tt.py`
+        # mlp_state_dict = self.model.policy.features_extractor.model.state_dict()
+        # self.tt_model = TTMLPPolicy(mlp_state_dict, self.mesh_device)
+        # self.model.policy.features_extractor.model = self.tt_model
+        # self.model.policy.vf_features_extractor.model = self.tt_model
+        # self.model.policy.pi_features_extractor.model = self.tt_model
 
     def _gdown(self) -> str:
         """No file download needed"""

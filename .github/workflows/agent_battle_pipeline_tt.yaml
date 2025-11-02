@@ -1,4 +1,4 @@
-name: RL Tournament Battle Pipeline
+name: RL Tournament Battle Tenstorrent Pipeline
 
 on:
   workflow_dispatch:
@@ -23,10 +23,13 @@ jobs:
 
   battle:
     name: Battle
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: check-inputs
     container:
-      image: python:3.12
+      image: python:3.10
+      options: >-
+        --device /dev/tenstorrent
+        -v /dev/hugepages-1G:/dev/hugepages-1G
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
@@ -40,8 +43,8 @@ jobs:
       # Step 2: Install dependencies
       - name: Install dependencies
         run: |
-          chmod +x install.sh
-          ./install.sh
+          chmod +x install_tt.sh
+          ./install_tt.sh
 
       # Step 3: Check both participants have passed validation (via api.py)
       - name: Check participants' validation status server-side

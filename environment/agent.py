@@ -539,7 +539,8 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
         }
 
         observations, rewards, terminated, truncated, info = self.raw_env.step(full_action)
-
+        self.opponent_obs = observations[1]
+     
         if self.save_handler is not None:
             self.save_handler.process()
 
@@ -656,9 +657,11 @@ def run_match(agent_1: Agent | partial,
           reward_manager.process(env, 1 / env.fps)
 
       if video_path is not None:
-          img = env.render()
-          writer.writeFrame(img)
-          del img
+            img = env.render()
+            img = np.rot90(img, k=-1)  #video output rotate fix
+            img = np.fliplr(img)  # Mirror/flip the image horizontally
+            writer.writeFrame(img) 
+            del img
 
       if terminated or truncated:
           break
@@ -1026,7 +1029,9 @@ def train(agent: Agent,
         agent.learn(env, total_timesteps=train_timesteps, verbose=1)
         base_env.on_training_end()
     except KeyboardInterrupt:
-        pass
+        if save_handler is not None:
+            save_handler.agent.update_num_timesteps(save_handler.num_timesteps)
+            save_handler.save_agent()
 
     env.close()
 
