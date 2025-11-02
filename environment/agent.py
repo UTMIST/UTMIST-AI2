@@ -796,12 +796,11 @@ def run_match(agent_1: Agent | partial,
 
         subprocess.run([
             "ffmpeg", "-y",
-            "-stream_loop", "-1",               
+            "-i", video_path,
             "-i", "environment/assets/soundtrack.mp3",
-            "-i", video_path,                     
-            "-c:v", "copy",                      
-            "-c:a", "aac",                        
-            "-shortest",       
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
             temp_path
         ])
 
