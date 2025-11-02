@@ -588,7 +588,7 @@ from tqdm import tqdm
 
 def run_match(agent_1: Agent | partial,
               agent_2: Agent | partial,
-              max_timesteps=30*90,
+              max_timesteps=60*90,
               video_path: Optional[str]=None,
               agent_1_name: Optional[str]=None,
               agent_2_name: Optional[str]=None,
@@ -599,6 +599,7 @@ def run_match(agent_1: Agent | partial,
     # Initialize env
 
     env = WarehouseBrawl(resolution=resolution, train_mode=train_mode)
+    env.max_timesteps = max_timesteps
     observations, infos = env.reset()
     obs_1 = observations[0]
     obs_2 = observations[1]
@@ -639,13 +640,13 @@ def run_match(agent_1: Agent | partial,
     # Initialize agents
     if not agent_1.initialized: agent_1.get_env_info(env)
 
-    # rl_model_path = "rl-model.zip"
-    # if os.path.exists(rl_model_path):
-    #     try:
-    #         os.remove(rl_model_path)
-    #         print(f"Removed {rl_model_path}")
-    #     except Exception as e:
-    #         print(f"Warning: Could not remove {rl_model_path}: {e}")
+    rl_model_path = "rl-model.zip"
+    if os.path.exists(rl_model_path):
+        try:
+            os.remove(rl_model_path)
+            print(f"Removed {rl_model_path}")
+        except Exception as e:
+            print(f"Warning: Could not remove {rl_model_path}: {e}")
 
     if not agent_2.initialized: agent_2.get_env_info(env)
     # 596, 336
