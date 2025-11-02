@@ -9,6 +9,7 @@ from dataclasses import dataclass, field, MISSING
 from collections import defaultdict
 from functools import partial
 from typing import Tuple, Any
+import subprocess
 
 from PIL import Image, ImageSequence
 import matplotlib.pyplot as plt
@@ -247,7 +248,7 @@ class RewardManager():
 
     def reset(self):
         self.total_reward = 0
-        self.collected_signal_rewards
+        self.collected_signal_rewards = 0
 
 
 # ### Save, Self-play, and Opponents
@@ -602,8 +603,8 @@ def run_match(agent_1: Agent | partial,
               reward_manager: Optional[RewardManager]=None,
               train_mode=False
               ) -> MatchStats:
+    
     # Initialize env
-
     env = WarehouseBrawl(resolution=resolution, train_mode=train_mode)
     observations, infos = env.reset()
     obs_1 = observations[0]
@@ -628,13 +629,16 @@ def run_match(agent_1: Agent | partial,
     else:
         print(f"video_path={video_path} -> Rendering")
         # Initialize video writer
-        writer = skvideo.io.FFmpegWriter(video_path, outputdict={
-            '-vcodec': 'libx264',  # Use H.264 for Windows Media Player
-            '-pix_fmt': 'yuv420p',  # Compatible with both WMP & Colab
-            '-preset': 'fast',  # Faster encoding
-            '-crf': '20',  # Quality-based encoding (lower = better quality)
-            '-r': '30'  # Frame rate
-        })
+        writer = skvideo.io.FFmpegWriter(
+            video_path,
+            outputdict={
+                '-vcodec': 'libx264',
+                '-pix_fmt': 'yuv420p',
+                '-preset': 'fast',
+                '-crf': '20',
+                '-r': '30'
+            }
+        )
 
     # If partial
     if callable(agent_1):
@@ -675,6 +679,23 @@ def run_match(agent_1: Agent | partial,
 
     if video_path is not None:
         writer.close()
+
+        # Create a temporary file path in the same folder
+        temp_path = video_path + ".temp.mp4"
+
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-i", "environment/assets/soundtrack.mp3",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            temp_path
+        ])
+
+        # Replace the original file with the new one
+        os.replace(temp_path, video_path)
+
     env.close()
 
     # visualize
@@ -1103,6 +1124,15 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
 
     # Initialize environment
     env = WarehouseBrawl(resolution=resolution, train_mode=False)
+    
+    # reward manager
+    from user.train_agent import gen_reward_manager
+    reward_manager = gen_reward_manager()
+
+    if reward_manager is not None:
+        reward_manager.reset()
+        reward_manager.subscribe_signals(env)
+
     observations, _ = env.reset()
     obs_1 = observations[0]
     obs_2 = observations[1]
@@ -1136,6 +1166,10 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
         observations, rewards, terminated, truncated, info = env.step(full_action)
         obs_1 = observations[0]
         obs_2 = observations[1]
+
+        # reward process
+        if reward_manager is not None:
+            reward_manager.process(env, 1 / env.fps)
 
         # Render the game
         
