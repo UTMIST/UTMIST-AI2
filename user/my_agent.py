@@ -31,47 +31,86 @@ class SubmittedAgent(Agent):
     Input the **file_path** to your agent here for submission!
     '''
     def __init__(
-        self,
-        file_path: Optional[str] = None,
+            self,
+            *args,
+            **kwargs
     ):
-        super().__init__(file_path)
-
-        # To run a TTNN model, you must maintain a pointer to the device and can be done by 
-        # uncommmenting the line below to use the device pointer
-        # self.mesh_device = ttnn.open_mesh_device(ttnn.MeshShape(1,1))
-
-    def _initialize(self) -> None:
-        if self.file_path is None:
-            self.model = PPO("MlpPolicy", self.env, verbose=0)
-            del self.env
-        else:
-            self.model = PPO.load(self.file_path)
-
-        # To run the sample TTNN model during inference, you can uncomment the 5 lines below:
-        # This assumes that your self.model.policy has the MLPPolicy architecture defined in `train_agent.py` or `my_agent_tt.py`
-        # mlp_state_dict = self.model.policy.features_extractor.model.state_dict()
-        # self.tt_model = TTMLPPolicy(mlp_state_dict, self.mesh_device)
-        # self.model.policy.features_extractor.model = self.tt_model
-        # self.model.policy.vf_features_extractor.model = self.tt_model
-        # self.model.policy.pi_features_extractor.model = self.tt_model
-
-    def _gdown(self) -> str:
-        data_path = "rl-model.zip"
-        if not os.path.isfile(data_path):
-            print(f"Downloading {data_path}...")
-            # Place a link to your PUBLIC model data here. This is where we will download it from on the tournament server.
-            url = "https://drive.google.com/file/d/1JIokiBOrOClh8piclbMlpEEs6mj3H1HJ/view?usp=sharing"
-            gdown.download(url, output=data_path, fuzzy=True)
-        return data_path
+        super().__init__(*args, **kwargs)
+        self.time = 0
+        self.prev_pos = None
+        self.down = False
+        self.recover = False
 
     def predict(self, obs):
-        action, _ = self.model.predict(obs)
+        self.time += 1
+        pos = self.obs_helper.get_section(obs, 'player_pos')
+        opp_pos = self.obs_helper.get_section(obs, 'opponent_pos')
+        opp_KO = self.obs_helper.get_section(obs, 'opponent_state') in [5, 11]
+        action = self.act_helper.zeros()
+        facing = self.obs_helper.get_section(obs, 'player_facing')
+
+        opp_grounded = self.obs_helper.get_section(obs, 'opponent_grounded')
+        opp_state = self.obs_helper.get_section(obs, 'opponent_state')
+        opp_move_type = self.obs_helper.get_section(obs, 'opponent_move_type')
+
+        is_opponent_spamming = opp_grounded == 1 and opp_state == 8 and opp_move_type > 0
+
+        spawners = self.env.get_spawner_info()
+
+        # pick up a weapon if near
+        '''
+        if self.obs_helper.get_section(obs, 'player_weapon_type') == 0:
+            for w in spawners:
+                if euclid(pos, w[1]) < 3:
+                    action = self.act_helper.press_keys(['h'], action)
+        '''
+                    
+        # emote for fun
+        if self.time == 10 or self.obs_helper.get_section(obs, 'opponent_stocks') == 0:
+            action = self.act_helper.press_keys(['g'], action)
+            return action
+
+        if self.prev_pos is not None:
+            self.down = (pos[1] - self.prev_pos[1]) > 0
+        self.prev_pos = pos
+
+        self.recover = False
+        if pos[0] < -4.8:
+            action = self.act_helper.press_keys(['d'], action)
+            self.recover = True
+        elif pos[0] > -4.2 and pos[0] < 0:
+            action = self.act_helper.press_keys(['a'], action)
+            self.recover = True
+        elif pos[0] > 0 and pos[0] < 4.2:
+            action = self.act_helper.press_keys(['d'], action)
+            self.recover = True
+        elif pos[0] > 4.8:
+            action = self.act_helper.press_keys(['a'], action)
+            self.recover = True
+
+        # Jump if falling
+        if pos[1] > -5 and (self.down or (self.obs_helper.get_section(obs, 'player_grounded') == 1) and not is_opponent_spamming):
+            if self.time % 10 == 0:
+                action = self.act_helper.press_keys(['space'], action)
+            if self.recover and self.obs_helper.get_section(obs, 'player_grounded') == 0 and self.obs_helper.get_section(obs, 'player_jumps_left') == 0 and self.obs_helper.get_section(obs, 'player_recoveries_left') == 1 and self.time % 2 == 0:
+                action = self.act_helper.press_keys(['k'], action)
+
+        
+        if not self.recover:
+            if opp_pos[0] > pos[0]:
+                action = self.act_helper.press_keys(['d'], action)
+            elif opp_pos[0] < pos[0]:
+                action = self.act_helper.press_keys(['a'], action)
+        
+                
+        # Attack if near
+        if not self.recover and abs(pos[0] - opp_pos[0]) < 0.5 and pos[1] < opp_pos[1]:
+            action = self.act_helper.press_keys(['s'], action)
+            action = self.act_helper.press_keys(['k'], action)
+        elif not self.recover and euclid(pos, opp_pos) < 4:
+            action = self.act_helper.press_keys(['j'], action)
+
         return action
 
-    def save(self, file_path: str) -> None:
-        self.model.save(file_path)
-
-    # If modifying the number of models (or training in general), modify this
-    def learn(self, env, total_timesteps, log_interval: int = 4):
-        self.model.set_env(env)
-        self.model.learn(total_timesteps=total_timesteps, log_interval=log_interval)
+def euclid (a, b):
+    return (a[0] - b[0])**2 + (a[1] - b[1])**2

@@ -100,13 +100,16 @@ class RecurrentPPOAgent(Agent):
                 'share_features_extractor': True,
 
             }
+            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            print(f"Using device: {device}")
             self.model = RecurrentPPO("MlpLstmPolicy",
                                       self.env,
                                       verbose=0,
                                       n_steps=30*90*20,
                                       batch_size=16,
                                       ent_coef=0.05,
-                                      policy_kwargs=policy_kwargs)
+                                      policy_kwargs=policy_kwargs,
+                                      device=device)
             del self.env
         else:
             self.model = RecurrentPPO.load(self.file_path)
@@ -403,7 +406,9 @@ def damage_interaction_reward(
     else:
         raise ValueError(f"Invalid mode: {mode}")
 
-    return reward / 140
+    # Clip per-step reward to [-0.2, +0.2]
+    reward = reward / 140
+    return clip_reward(reward)
 
 
 # In[ ]:
@@ -513,16 +518,27 @@ def on_win_reward(env: WarehouseBrawl, agent: str) -> float:
         return -1.0
 
 def on_knockout_reward(env: WarehouseBrawl, agent: str) -> float:
+    """
+    Two separate events:
+    - You KO them: +50
+    - You get KO'd: -50
+    """
+    # This signal is emitted for the agent that got KO'd
+    # So 'player' means player got KO'd, opponent got KO'd means win
     if agent == 'player':
-        return -1.0
+        return -1.0  # Player got KO'd (will be scaled to -50)
     else:
-        return 1.0
+        return 1.0  # Opponent got KO'd, player wins (will be scaled to +50)
     
 def on_equip_reward(env: WarehouseBrawl, agent: str) -> float:
+    """
+    Simple equip reward to prevent weapon camping.
+    No special bonuses for specific weapons.
+    """
     if agent == "player":
-        if env.objects["player"].weapon == "Hammer":
-            return 2.0
-        elif env.objects["player"].weapon == "Spear":
+        # Just acknowledge weapon pickup, no special bonuses
+        player = env.objects["player"]
+        if player.weapon in ["Hammer", "Spear"]:
             return 1.0
     return 0.0
 
@@ -533,31 +549,327 @@ def on_drop_reward(env: WarehouseBrawl, agent: str) -> float:
     return 0.0
 
 def on_combo_reward(env: WarehouseBrawl, agent: str) -> float:
+    """Reward per EXTRA hit after the first - prevents dwarfing KO credit"""
     if agent == 'player':
-        return -1.0
+        damage_dealt = env.objects["opponent"].damage_taken_this_frame
+        # Pay per extra hit (first hit gets no combo bonus, subsequent hits do)
+        # This encourages extending but doesn't overshadow KOs
+        return 0.05  # Per extra hit, scaled by weight
     else:
-        return 1.0
+        return -0.05
+
+def edge_to_ko_bonus(env: WarehouseBrawl, agent: str) -> float:
+    """Bonus for converting edge hits into KOs within 2 seconds"""
+    if agent != 'player':
+        return 0.0
+    
+    player = env.objects["player"]
+    opponent = env.objects["opponent"]
+    
+    # Check if opponent was near edge (within 3 units) when KO'd
+    edge_x = env.stage_width_tiles // 2
+    opponent_dist_to_left = abs(opponent.body.position.x + edge_x)
+    opponent_dist_to_right = abs(opponent.body.position.x - edge_x)
+    min_edge_dist = min(opponent_dist_to_left, opponent_dist_to_right)
+    
+    # Bonus if opponent was near edge when KO'd
+    if min_edge_dist < 3.0:
+        return 8.0
+    
+    return 0.0
+
+def whiff_punishment_reward(env: WarehouseBrawl) -> float:
+    """
+    STRONG penalties for whiffing attacks, especially when far from opponent.
+    Stops spam attacking the air.
+    """
+    player = env.objects["player"]
+    opponent = env.objects["opponent"]
+    
+    # Calculate distance
+    dx = player.body.position.x - opponent.body.position.x
+    dy = player.body.position.y - opponent.body.position.y
+    distance = (dx**2 + dy**2)**0.5
+    
+    threat_range = 3.0
+    far_range = 5.0
+    
+    # Check if player is attacking
+    if hasattr(player.state, 'move_type') and player.state.move_type != MoveType.NONE:
+        # STRONGER penalty if attacking when opponent is far away
+        if distance > far_range:
+            return -0.15  # Heavy penalty for attacking air when far
+        elif distance > threat_range:
+            return -0.08  # Medium penalty for attacking outside threat range
+        elif distance < threat_range:
+            # Classify as heavy or light whiff in range
+            is_heavy = player.state.move_type in [
+                MoveType.NSIG, MoveType.DSIG, MoveType.SSIG, MoveType.DAIR, MoveType.SAIR
+            ]
+            
+            if is_heavy:
+                return -0.10  # INCREASED: Heavy whiff in range
+            else:
+                return -0.05  # INCREASED: Light whiff in range
+    
+    return 0.0
+
+def time_pressure_reward(env: WarehouseBrawl) -> float:
+    """
+    Tiny constant per-step penalty to encourage decisive action.
+    """
+    return -0.0002  # Tiny constant per step
+
+def retreat_penalty(env: WarehouseBrawl) -> float:
+    """
+    Penalizes retreating after grace window, but NOT when kiting for better engage.
+    """
+    player = env.objects["player"]
+    opponent = env.objects["opponent"]
+    
+    dx = player.body.position.x - opponent.body.position.x
+    vel_x = player.body.velocity.x
+    
+    # Check if moving away from opponent
+    is_retreating = (dx > 0 and vel_x > 0.1) or (dx < 0 and vel_x < -0.1)
+    
+    if is_retreating:
+        # Check if kiting toward a better position (moving toward opponent diagonally)
+        # For now, simple check: if opponent is in bad position, allow kiting
+        opp_in_bad_position = opponent.body.position.y > 4.0 or opponent.body.position.y < -2.0
+        
+        if not opp_in_bad_position:
+            # This is a retreat, apply penalty
+            return -0.01 * env.dt  # Grace window handled by small penalty
+    
+    return 0.0
+
+def advantage_state_reward(env: WarehouseBrawl) -> float:
+    """
+    Rewards opponent in hitstun + tiny per-frame hitstun reward.
+    Encourages sustained pressure.
+    """
+    player = env.objects["player"]
+    opponent = env.objects["opponent"]
+    
+    # Base reward for having opponent stunned
+    # Check if opponent is in StunState
+    if isinstance(opponent.state, StunState):
+        base_reward = 0.05 * env.dt  # Advantage state reward
+        hitstun_bonus = 0.02 * env.dt  # Tiny per-frame hitstun reward
+        return base_reward + hitstun_bonus
+    
+    return 0.0
+
+def clip_reward(reward: float, min_val: float = -0.2, max_val: float = 0.2) -> float:
+    """
+    Clip per-step rewards to [-0.2, +0.2].
+    Terminal rewards are NOT clipped.
+    """
+    return max(min_val, min(max_val, reward))
+
+def proximity_to_opponent_reward(env: WarehouseBrawl) -> float:
+    """
+    Rewards getting close to opponent - encourages chasing and engagement.
+    Reward increases as distance decreases.
+    """
+    player: Player = env.objects["player"]
+    opponent: Player = env.objects["opponent"]
+    
+    # Calculate distance
+    dx = player.body.position.x - opponent.body.position.x
+    dy = player.body.position.y - opponent.body.position.y
+    distance = (dx**2 + dy**2)**0.5
+    
+    max_distance = 15.0  # Maximum arena distance
+    
+    # Don't reward if player is stunned
+    if isinstance(player.state, StunState):
+        return 0.0
+    
+    # Reward for being close - closer = more reward
+    # Inverse relationship: closer gets more reward
+    if distance < max_distance:
+        reward = (max_distance - distance) / max_distance
+        return reward * env.dt * 0.05  # INCREASED per-frame reward
+    
+    return 0.0
+
+def edge_avoidance_reward(env: WarehouseBrawl, danger_zone: float = 3.0) -> float:
+    """
+    Penalizes agent for being near map edges, BUT only when opponent is NOT off-stage.
+    Allows edge-guarding when opponent is disadvantaged.
+    """
+    player: Player = env.objects["player"]
+    opponent: Player = env.objects["opponent"]
+    
+    # Check if opponent is off-stage - if so, edge-guarding is valid
+    edge_x = env.stage_width_tiles // 2
+    edge_y = env.stage_height_tiles // 2
+    
+    opponent_dist_to_left = abs(opponent.body.position.x + edge_x)
+    opponent_dist_to_right = abs(opponent.body.position.x - edge_x)
+    opponent_dist_to_bottom = abs(opponent.body.position.y + edge_y)
+    opponent_dist_to_top = abs(opponent.body.position.y - edge_y)
+    opponent_min_dist = min(opponent_dist_to_left, opponent_dist_to_right, 
+                           opponent_dist_to_bottom, opponent_dist_to_top)
+    
+    # If opponent is off-stage, allow edge-guarding
+    if opponent_min_dist < 2.0 or opponent.body.position.y > 4.5:
+        return 0.0  # No penalty when opponent is off-stage
+    
+    # Get arena boundaries
+    edge_x = env.stage_width_tiles // 2
+    edge_y = env.stage_height_tiles // 2
+    
+    # Distance to each edge
+    dist_to_left = abs(player.body.position.x + edge_x)
+    dist_to_right = abs(player.body.position.x - edge_x)
+    dist_to_bottom = abs(player.body.position.y + edge_y)
+    dist_to_top = abs(player.body.position.y - edge_y)
+    
+    # Find minimum distance to any edge
+    min_dist_to_edge = min(dist_to_left, dist_to_right, dist_to_bottom, dist_to_top)
+    
+    # Penalty if too close to edges (when opponent is not off-stage)
+    # STRONGER penalty that scales more aggressively
+    if min_dist_to_edge < danger_zone:
+        # Quadratic penalty for being near edge
+        penalty_ratio = min_dist_to_edge / danger_zone
+        penalty = -((1.0 - penalty_ratio) ** 2) * 2.0  # Stronger near edges
+    else:
+        penalty = 0.0
+    
+    # Clip per-step reward but allow stronger penalties
+    return clip_reward(penalty * env.dt * 2.0)  # Scale up the penalty
+
+def fall_velocity_penalty(env: WarehouseBrawl, max_safe_velocity: float = 70.0) -> float:
+    """
+    Penalizes rapid falling ONLY when off-stage AND recovery resources low.
+    Does NOT penalize fast-fall confirms on-stage.
+    """
+    player: Player = env.objects["player"]
+    
+    edge_x = env.stage_width_tiles // 2
+    edge_y = env.stage_height_tiles // 2
+    
+    # Check if player is off-stage
+    dist_to_left = abs(player.body.position.x + edge_x)
+    dist_to_right = abs(player.body.position.x - edge_x)
+    dist_to_bottom = abs(player.body.position.y + edge_y)
+    player_min_dist = min(dist_to_left, dist_to_right, dist_to_bottom)
+    
+    is_offstage = player_min_dist < 2.0
+    
+    # Penalize rapid falling both on-stage (near edges) and off-stage
+    if player.body.velocity.y < -max_safe_velocity:
+        # Check recovery resources (jumps/recoveries left)
+        has_recovery = False
+        if hasattr(player.state, 'jumps_left'):
+            has_recovery = player.state.jumps_left > 0
+        if hasattr(player.state, 'recoveries_left'):
+            has_recovery = has_recovery or player.state.recoveries_left > 0
+        
+        # STRONGER penalty if off-stage or near edge
+        is_near_edge = player_min_dist < 3.0
+        
+        if is_offstage or (is_near_edge and not has_recovery):
+            velocity_penalty = abs(player.body.velocity.y) / max_safe_velocity - 1.0
+            # STRONGER penalty
+            return clip_reward(-velocity_penalty * env.dt * 1.0)
+    
+    return 0.0
+
+def survival_bonus(env: WarehouseBrawl) -> float:
+    """
+    Small bonus for staying alive and on-stage.
+    Encourages not jumping off.
+    """
+    player: Player = env.objects["player"]
+    
+    edge_x = env.stage_width_tiles // 2
+    edge_y = env.stage_height_tiles // 2
+    
+    # Check if on-stage
+    dist_to_left = abs(player.body.position.x + edge_x)
+    dist_to_right = abs(player.body.position.x - edge_x)
+    dist_to_bottom = abs(player.body.position.y + edge_y)
+    player_min_dist = min(dist_to_left, dist_to_right, dist_to_bottom)
+    
+    is_onstage = player_min_dist >= 2.0
+    
+    if is_onstage:
+        return 0.01 * env.dt  # Small survival bonus
+    
+    return 0.0
+
+def weapon_stability_reward(env: WarehouseBrawl) -> float:
+    """
+    Small constant reward for having any weapon (discourages constant switching).
+    """
+    player: Player = env.objects["player"]
+    
+    # Reward for having a weapon, slightly more for better weapons
+    if player.weapon == "Hammer":
+        return 0.02 * env.dt
+    elif player.weapon == "Spear":
+        return 0.01 * env.dt
+    else:
+        return 0.0
 
 '''
 Add your dictionary of RewardFunctions here using RewTerms
 '''
 def gen_reward_manager():
     reward_functions = {
-        #'target_height_reward': RewTerm(func=base_height_l2, weight=0.0, params={'target_height': -4, 'obj_name': 'player'}),
-        'danger_zone_reward': RewTerm(func=danger_zone_reward, weight=0.5),
-        'damage_interaction_reward': RewTerm(func=damage_interaction_reward, weight=1.0),
-        #'head_to_middle_reward': RewTerm(func=head_to_middle_reward, weight=0.01),
-        #'head_to_opponent': RewTerm(func=head_to_opponent, weight=0.05),
-        'penalize_attack_reward': RewTerm(func=in_state_reward, weight=-0.04, params={'desired_state': AttackState}),
-        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=-0.01),
-        #'taunt_reward': RewTerm(func=in_state_reward, weight=0.2, params={'desired_state': TauntState}),
+        # BALANCED REWARD SYSTEM - Terminal rewards dominate
+        # Symmetric damage - agent pays for bad trades
+        'damage_interaction_reward': RewTerm(func=damage_interaction_reward, weight=10.0, params={'mode': RewardMode.SYMMETRIC}),
+        
+        # NEW: Advantage state reward - encourages pressure maintenance (reduced to avoid accumulation)
+        'advantage_state_reward': RewTerm(func=advantage_state_reward, weight=1.5),
+        
+        # Whiff punishment - STRONGER to stop spam attacking air
+        'whiff_punishment_reward': RewTerm(func=whiff_punishment_reward, weight=3.0),
+        
+        # Time pressure - prevent stalling
+        'time_pressure_reward': RewTerm(func=time_pressure_reward, weight=0.5),
+        
+        # INCREASED: Retreat penalty - stop running away, engage!
+        'retreat_penalty': RewTerm(func=retreat_penalty, weight=1.5),
+        
+        # Reduced weapon stability - let agent decide when to switch
+        'weapon_stability_reward': RewTerm(func=weapon_stability_reward, weight=0.5),
+        
+        # Contextual edge avoidance - allows edge-guarding (STRONG penalty to prevent jumping off)
+        'edge_avoidance_reward': RewTerm(func=edge_avoidance_reward, weight=12.0, params={'danger_zone': 3.0}),
+        'fall_velocity_penalty': RewTerm(func=fall_velocity_penalty, weight=5.0, params={'max_safe_velocity': 60.0}),
+        
+        # Survival bonus - encourage staying alive
+        'survival_bonus': RewTerm(func=survival_bonus, weight=3.0),
+        
+        # INCREASED proximity/chase rewards - encourage running at opponent
+        'proximity_to_opponent_reward': RewTerm(func=proximity_to_opponent_reward, weight=3.0),
+        'head_to_opponent': RewTerm(func=head_to_opponent, weight=2.0),
+        
+        # Keep these disabled/zero
+        'danger_zone_reward': RewTerm(func=danger_zone_reward, weight=0.0),
+        'penalize_attack_reward': RewTerm(func=in_state_reward, weight=0.0),
+        'holding_more_than_3_keys': RewTerm(func=holding_more_than_3_keys, weight=0.0),
     }
     signal_subscriptions = {
-        'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=50)),
-        'on_knockout_reward': ('knockout_signal', RewTerm(func=on_knockout_reward, weight=8)),
-        'on_combo_reward': ('hit_during_stun', RewTerm(func=on_combo_reward, weight=5)),
-        'on_equip_reward': ('weapon_equip_signal', RewTerm(func=on_equip_reward, weight=10)),
-        'on_drop_reward': ('weapon_drop_signal', RewTerm(func=on_drop_reward, weight=15))
+        # TERMINAL REWARDS - These dominate to ensure winning is the main goal
+        'on_win_reward': ('win_signal', RewTerm(func=on_win_reward, weight=100)),
+        'on_knockout_reward': ('knockout_signal', RewTerm(func=on_knockout_reward, weight=100)),  # You KO them: +100, You get KO'd: -100 (DOUBLED)
+        # Combo per extra hit - prevents dwarfing KO (weight 6-10)
+        'on_combo_reward': ('hit_during_stun', RewTerm(func=on_combo_reward, weight=8)),
+        
+        # Edge-to-KO conversion bonus
+        'edge_to_ko_bonus': ('knockout_signal', RewTerm(func=edge_to_ko_bonus, weight=1.0)),
+        
+        # Weapon rewards - simple, no special bonuses
+        'on_equip_reward': ('weapon_equip_signal', RewTerm(func=on_equip_reward, weight=0.5)),
+        'on_drop_reward': ('weapon_drop_signal', RewTerm(func=on_drop_reward, weight=-2))
     }
     return RewardManager(reward_functions, signal_subscriptions)
 
@@ -568,8 +880,11 @@ def gen_reward_manager():
 The main function runs training. You can change configurations such as the Agent type or opponent specifications here.
 '''
 if __name__ == '__main__':
-    # Create agent
+    # Start FRESH with improved rewards (RECOMMENDED)
     my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
+    
+    # OR: Continue from checkpoint (only if you want to try adapting old behavior):
+    # my_agent = CustomAgent(sb3_class=PPO, file_path='checkpoints/experiment_fixed_v2/rl_model_XXXXXX_steps.zip', extractor=MLPExtractor)
 
     # Start here if you want to train from scratch. e.g:
     #my_agent = RecurrentPPOAgent()
@@ -588,18 +903,18 @@ if __name__ == '__main__':
     # Set save settings here:
     save_handler = SaveHandler(
         agent=my_agent, # Agent to save
-        save_freq=100_000, # Save frequency
+        save_freq=50_000, # Save frequency - more frequent to catch good models
         max_saved=40, # Maximum number of saved models
         save_path='checkpoints', # Save path
-        run_name='experiment_9',
-        mode=SaveHandlerMode.FORCE # Save mode, FORCE or RESUME
+        run_name='experiment_aggressive_v3',  # Fresh training with aggressive chase + no whiffs
+        mode=SaveHandlerMode.FORCE  # Start completely fresh
     )
 
     # Set opponent settings here:
     opponent_specification = {
                     'self_play': (8, selfplay_handler),
-                    'constant_agent': (0.5, partial(ConstantAgent)),
-                    'based_agent': (1.5, partial(BasedAgent)),
+                    'constant_agent': (2, partial(ConstantAgent)),  # Increased from 0.5 to 2
+                    'based_agent': (2, partial(BasedAgent)),  # Increased from 1.5 to 2
                 }
     opponent_cfg = OpponentsCfg(opponents=opponent_specification)
 
@@ -608,6 +923,6 @@ if __name__ == '__main__':
         save_handler,
         opponent_cfg,
         CameraResolution.LOW,
-        train_timesteps=1_000_000_000,
+        train_timesteps=10_000_000,  # Continue training (total 15M from start)
         train_logging=TrainLogging.PLOT
     )
