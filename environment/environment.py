@@ -876,6 +876,7 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         self.observation_space = self.get_observation_space()
 
         self.camera = Camera()
+        self.camera.zoom = 0.7
 
         # Action Space
         # WASD
