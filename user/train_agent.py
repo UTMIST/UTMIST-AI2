@@ -2,7 +2,7 @@
 TRAINING: AGENT
 
 This file contains all the types of Agent classes, the Reward Function API, and the built-in train function from our multi-agent RL API for self-play training.
-- All of these Agent classes are each described below. 
+- All of these Agent classes are each described below.
 
 Running this file will initiate the training function, and will:
 a) Start training from scratch
@@ -13,13 +13,13 @@ b) Continue training from a specific timestep given an input `file_path`
 # ----------------------------- IMPORTS -----------------------------
 # -------------------------------------------------------------------
 
-import torch 
+import torch
 import gymnasium as gym
 from torch.nn import functional as F
 from torch import nn as nn
 import numpy as np
 import pygame
-from stable_baselines3 import A2C, PPO, SAC, DQN, DDPG, TD3, HER 
+from stable_baselines3 import A2C, PPO, SAC, DQN, DDPG, TD3, HER
 from sb3_contrib import RecurrentPPO
 from stable_baselines3.common.base_class import BaseAlgorithm
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
@@ -190,7 +190,7 @@ class UserInputAgent(Agent):
 
     def predict(self, obs):
         action = self.act_helper.zeros()
-       
+
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
             action = self.act_helper.press_keys(['w'], action)
@@ -260,7 +260,7 @@ class ClockworkAgent(Agent):
         action = self.act_helper.press_keys(self.current_action_data)
         self.steps += 1  # Increment step counter
         return action
-    
+
 class MLPPolicy(nn.Module):
     def __init__(self, obs_dim: int = 64, action_dim: int = 10, hidden_dim: int = 64):
         """
@@ -292,27 +292,27 @@ class MLPExtractor(BaseFeaturesExtractor):
     def __init__(self, observation_space: gym.Space, features_dim: int = 64, hidden_dim: int = 64):
         super(MLPExtractor, self).__init__(observation_space, features_dim)
         self.model = MLPPolicy(
-            obs_dim=observation_space.shape[0], 
+            obs_dim=observation_space.shape[0],
             action_dim=10,
             hidden_dim=hidden_dim,
         )
-    
+
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         return self.model(obs)
-    
+
     @classmethod
     def get_policy_kwargs(cls, features_dim: int = 64, hidden_dim: int = 64) -> dict:
         return dict(
             features_extractor_class=cls,
             features_extractor_kwargs=dict(features_dim=features_dim, hidden_dim=hidden_dim)
         )
-    
+
 class CustomAgent(Agent):
     def __init__(self, sb3_class: Optional[Type[BaseAlgorithm]] = PPO, file_path: str = None, extractor: BaseFeaturesExtractor = None, tensorboard_log: Optional[str] = "checkpoints/tb_logs/"):
         self.sb3_class = sb3_class
         self.extractor = extractor
-        super().__init__(file_path, tensorboard_log)
-    
+        super().__init__(file_path)
+
     def _initialize(self) -> None:
         if self.file_path is None:
             self.model = self.sb3_class("MlpPolicy", self.env, policy_kwargs=self.extractor.get_policy_kwargs(), verbose=0, n_steps=30*90*3, batch_size=128, ent_coef=0.01, tensorboard_log=self.tensorboard_log)
@@ -514,6 +514,7 @@ def holding_more_than_3_keys(
 
     # Apply penalty if the player is holding more than 3 keys
     a = player.cur_action
+    a = np.array(a)
     if (a > 0.5).sum() > 3:
         return env.dt
     return 0
@@ -529,7 +530,7 @@ def on_knockout_reward(env: WarehouseBrawl, agent: str) -> float:
         return -1.0
     else:
         return 1.0
-    
+
 def on_equip_reward(env: WarehouseBrawl, agent: str) -> float:
     if agent == "player":
         if env.objects["player"].weapon == "Hammer":
@@ -620,13 +621,11 @@ if __name__ == '__main__':
                     }
         opponent_cfg = OpponentsCfg(opponents=opponent_specification)
 
-        train(my_agent,
-            reward_manager,
-            save_handler,
-            opponent_cfg,
-            CameraResolution.LOW,
-            train_timesteps=1_000_000_000,
-            train_logging=TrainLogging.PLOT
-        )
-    finally:
-        tb_process.terminate()
+    train(my_agent,
+        reward_manager,
+        save_handler,
+        opponent_cfg,
+        CameraResolution.LOW,
+        train_timesteps=1_000_000_000,
+        train_logging=TrainLogging.PLOT
+    )

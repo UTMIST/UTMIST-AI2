@@ -14,9 +14,7 @@ import subprocess
 from PIL import Image, ImageSequence
 import matplotlib.pyplot as plt
 
-import gdown, os, math, random, shutil, json
-import subprocess as sp
-import time
+import gdown, os, math, random, shutil, json, uuid
 
 import numpy as np
 import torch
@@ -62,6 +60,7 @@ class Agent(ABC):
         # If no supplied file_path, load from gdown (optional file_path returned)
         if file_path is None:
             file_path = self._gdown()
+            file_path = self._maybe_unique_model_path(file_path)
 
         self.file_path: Optional[str] = file_path
         self.initialized = False
@@ -78,6 +77,8 @@ class Agent(ABC):
         self.action_space = self_env.action_space
         self.act_helper = self_env.act_helper
         self.env = env
+        # Resolve model path (handles .zip duplication and fallbacks)
+        self.file_path = self._resolve_file_path(self.file_path)
         self._initialize()
         self.initialized = True
 
@@ -115,6 +116,120 @@ class Agent(ABC):
         :return:
         """
         return
+
+    def _resolve_file_path(self, file_path: Optional[str]) -> Optional[str]:
+        """
+        Best-effort resolution of a provided model path.
+
+        - Converts to absolute path
+        - Tries sibling variants with/without the `.zip` suffix
+        - Looks in a few common folders (./, ./checkpoints, ./models, ./user/models)
+        - Falls back to calling _gdown() if nothing is found
+
+        Returns a path that exists, or None if unresolved.
+        """
+        try:
+            if file_path is None:
+                return None
+
+            # If a URL-like path is passed, skip straight to download
+            is_url = isinstance(file_path, str) and (
+                file_path.startswith('http://') or file_path.startswith('https://')
+                or 'drive.google.com' in file_path
+            )
+
+            candidates = []
+
+            if not is_url:
+                base = file_path
+                if not os.path.isabs(base):
+                    base = os.path.abspath(base)
+
+                candidates.append(base)
+                if base.endswith('.zip'):
+                    candidates.append(base[:-4])
+                else:
+                    candidates.append(base + '.zip')
+
+                # Probe a few common directories with both name variants
+                cwd = os.getcwd()
+                name = os.path.basename(base)
+                probe_dirs = [
+                    '.',
+                    'checkpoints',
+                    'models',
+                    os.path.join('user', 'models'),
+                ]
+                for d in probe_dirs:
+                    root = os.path.abspath(os.path.join(cwd, d))
+                    p1 = os.path.join(root, name)
+                    candidates.append(p1)
+                    if not name.endswith('.zip'):
+                        candidates.append(p1 + '.zip')
+
+            # Return the first existing candidate
+            for c in candidates:
+                if isinstance(c, str) and os.path.exists(c):
+                    return c
+
+            # Nothing found locally - try to download via _gdown
+            downloaded = self._gdown()
+            if isinstance(downloaded, str):
+                resolved = downloaded if os.path.isabs(downloaded) else os.path.abspath(downloaded)
+                if os.path.exists(resolved):
+                    # If a specific (non-existing) target was requested, copy to it
+                    if (file_path is not None and not is_url):
+                        target = file_path if os.path.isabs(file_path) else os.path.abspath(file_path)
+                        try:
+                            os.makedirs(os.path.dirname(target), exist_ok=True)
+                            shutil.copy2(resolved, target)
+                            return target
+                        except Exception as copy_e:
+                            warnings.warn(f"Failed to copy downloaded model to requested path: {copy_e}")
+                    # Optionally create a unique-named copy if requested by env
+                    env_toggle = os.environ.get('AI2_UNIQUE_MODEL', '0').lower() in ('1', 'true', 'yes')
+                    if env_toggle:
+                        base_dir = os.environ.get('AI2_MODEL_DIR', os.path.dirname(resolved))
+                        base_name = os.environ.get('AI2_MODEL_BASENAME', 'rl-model')
+                        unique = uuid.uuid4().hex[:8]
+                        target = os.path.abspath(os.path.join(base_dir, f"{base_name}-{unique}.zip"))
+                        try:
+                            os.makedirs(os.path.dirname(target), exist_ok=True)
+                            shutil.copy2(resolved, target)
+                            return target
+                        except Exception as e2:
+                            warnings.warn(f"Failed to create unique model copy: {e2}")
+                    return resolved
+        except Exception as e:
+            warnings.warn(f"Model path resolution failed: {e}")
+
+        return None
+
+    def _maybe_unique_model_path(self, path: Optional[str]) -> Optional[str]:
+        """
+        Optionally duplicate the downloaded model to a uniquely named path when
+        AI2_UNIQUE_MODEL is enabled. Returns the new path, or the original path
+        on any failure or when disabled.
+        """
+        try:
+            if path is None:
+                return None
+            env_toggle = os.environ.get('AI2_UNIQUE_MODEL', '0').lower() in ('1', 'true', 'yes')
+            if not env_toggle:
+                return path
+            abs_src = path if os.path.isabs(path) else os.path.abspath(path)
+            if not os.path.exists(abs_src):
+                return path
+            base_dir = os.environ.get('AI2_MODEL_DIR', os.path.dirname(abs_src))
+            base_name = os.environ.get('AI2_MODEL_BASENAME', 'rl-model')
+            unique = uuid.uuid4().hex[:8]
+            target = os.path.abspath(os.path.join(base_dir, f"{base_name}-{unique}.zip"))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(abs_src, target)
+            return target
+        except Exception as e:
+            warnings.warn(f"Unique model naming failed: {e}")
+            return path
 
 
 # ### Agent Classes
@@ -388,7 +503,7 @@ class SelfPlayHandler(ABC):
 
     def __init__(self, agent_partial: partial):
         self.agent_partial = agent_partial
-    
+
     def get_model_from_path(self, path) -> Agent:
         if path:
             try:
@@ -409,7 +524,7 @@ class SelfPlayHandler(ABC):
 class SelfPlayLatest(SelfPlayHandler):
     def __init__(self, agent_partial: partial):
         super().__init__(agent_partial)
-    
+
     def get_opponent(self) -> Agent:
         assert self.save_handler is not None, "Save handler must be specified for self-play"
         chosen_path = self.save_handler.get_latest_model_path()
@@ -418,7 +533,7 @@ class SelfPlayLatest(SelfPlayHandler):
 class SelfPlayRandom(SelfPlayHandler):
     def __init__(self, agent_partial: partial):
         super().__init__(agent_partial)
-    
+
     def get_opponent(self) -> Agent:
         assert self.save_handler is not None, "Save handler must be specified for self-play"
         chosen_path = self.save_handler.get_random_model_path()
@@ -520,7 +635,7 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
                 # Give SelfPlayHandler references
                 selfplay_handler: SelfPlayHandler = value[1]
                 selfplay_handler.save_handler = self.save_handler
-                selfplay_handler.env = self       
+                selfplay_handler.env = self
 
         self.raw_env = WarehouseBrawl(resolution=resolution, train_mode=True)
         self.action_space = self.raw_env.action_space
@@ -595,7 +710,7 @@ from tqdm import tqdm
 
 def run_match(agent_1: Agent | partial,
               agent_2: Agent | partial,
-              max_timesteps=30*90,
+              max_timesteps=60*90,
               video_path: Optional[str]=None,
               agent_1_name: Optional[str]=None,
               agent_2_name: Optional[str]=None,
@@ -606,6 +721,7 @@ def run_match(agent_1: Agent | partial,
     
     # Initialize env
     env = WarehouseBrawl(resolution=resolution, train_mode=train_mode)
+    env.max_timesteps = max_timesteps
     observations, infos = env.reset()
     obs_1 = observations[0]
     obs_2 = observations[1]
@@ -670,7 +786,7 @@ def run_match(agent_1: Agent | partial,
             img = env.render()
             img = np.rot90(img, k=-1)  #video output rotate fix
             img = np.fliplr(img)  # Mirror/flip the image horizontally
-            writer.writeFrame(img) 
+            writer.writeFrame(img)
             del img
 
       if terminated or truncated:
@@ -709,7 +825,7 @@ def run_match(agent_1: Agent | partial,
         result = Result.LOSS
     else:
         result = Result.DRAW
-    
+
     match_stats = MatchStats(
         match_time=env.steps / env.fps,
         player1=player_1_stats,
@@ -799,7 +915,7 @@ class UserInputAgent(Agent):
 
     def predict(self, obs):
         action = self.act_helper.zeros()
-       
+
         keys = pygame.key.get_pressed()
         if keys[pygame.K_w]:
             action = self.act_helper.press_keys(['w'], action)
@@ -1081,7 +1197,6 @@ def train(agent: Agent,
         if save_handler is not None:
             save_handler.agent.update_num_timesteps(save_handler.num_timesteps)
             save_handler.save_agent()
-            plot_results(log_dir)
 
     env.close()
 
@@ -1114,7 +1229,7 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
         CameraResolution.MEDIUM: (720, 1280),
         CameraResolution.HIGH: (1080, 1920)
     }
-    
+
     screen = pygame.display.set_mode(resolutions[resolution][::-1])  # Set screen dimensions
 
 
@@ -1145,17 +1260,17 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
     timestep = 0
    # platform1 = env.objects["platform1"] #mohamed
     #stage2 = env.objects["stage2"]
-    background_image = pygame.image.load('environment/assets/map/bg.jpg').convert() 
+    background_image = pygame.image.load('environment/assets/map/bg.jpg').convert()
     while running and timestep < max_timesteps:
-       
-        # Pygame event to handle real-time user input 
-       
+
+        # Pygame event to handle real-time user input
+
         for event in pygame.event.get():
             if event.type == QUIT:
                 running = False
             if event.type == pygame.VIDEORESIZE:
                  screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
-       
+
         action_1 = agent_1.predict(obs_1)
 
         # AI input
@@ -1172,10 +1287,10 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
             reward_manager.process(env, 1 / env.fps)
 
         # Render the game
-        
+
         img = env.render()
         screen.blit(pygame.surfarray.make_surface(img), (0, 0))
-     
+
         pygame.display.flip()
 
         # Control frame rate (30 fps)
@@ -1200,7 +1315,7 @@ def run_real_time_match(agent_1: UserInputAgent, agent_2: Agent, max_timesteps=3
         result = Result.LOSS
     else:
         result = Result.DRAW
-    
+
     match_stats = MatchStats(
         match_time=timestep / 30.0,
         player1=player_1_stats,
