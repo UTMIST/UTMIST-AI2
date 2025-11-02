@@ -34,7 +34,6 @@ import skimage.transform as st
 import skvideo
 import skvideo.io
 from IPython.display import Video
-import subprocess
 
 from stable_baselines3.common.monitor import Monitor
 
@@ -700,6 +699,7 @@ class SelfPlayWarehouseBrawl(gymnasium.Env):
 
 # In[ ]:
 
+
 from stable_baselines3.common.vec_env import DummyVecEnv
 from tqdm import tqdm
 
@@ -713,8 +713,8 @@ def run_match(agent_1: Agent | partial,
               reward_manager: Optional[RewardManager]=None,
               train_mode=False
               ) -> MatchStats:
-    
     # Initialize env
+
     env = WarehouseBrawl(resolution=resolution, train_mode=train_mode)
     env.max_timesteps = max_timesteps
     observations, infos = env.reset()
@@ -740,16 +740,13 @@ def run_match(agent_1: Agent | partial,
     else:
         print(f"video_path={video_path} -> Rendering")
         # Initialize video writer
-        writer = skvideo.io.FFmpegWriter(
-            video_path,
-            outputdict={
-                '-vcodec': 'libx264',
-                '-pix_fmt': 'yuv420p',
-                '-preset': 'fast',
-                '-crf': '20',
-                '-r': '30'
-            }
-        )
+        writer = skvideo.io.FFmpegWriter(video_path, outputdict={
+            '-vcodec': 'libx264',  # Use H.264 for Windows Media Player
+            '-pix_fmt': 'yuv420p',  # Compatible with both WMP & Colab
+            '-preset': 'fast',  # Faster encoding
+            '-crf': '20',  # Quality-based encoding (lower = better quality)
+            '-r': '30'  # Frame rate
+        })
 
     # If partial
     if callable(agent_1):
@@ -790,23 +787,6 @@ def run_match(agent_1: Agent | partial,
 
     if video_path is not None:
         writer.close()
-
-        # Create a temporary file path in the same folder
-        temp_path = video_path + ".temp.mp4"
-
-        subprocess.run([
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-i", "environment/assets/soundtrack.mp3",
-            "-c:v", "copy",
-            "-c:a", "aac",
-            "-shortest",
-            temp_path
-        ])
-
-        # Replace the original file with the new one
-        os.replace(temp_path, video_path)
-
     env.close()
 
     # visualize
