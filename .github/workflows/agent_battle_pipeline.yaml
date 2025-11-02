@@ -91,6 +91,7 @@ jobs:
         env:
           AGENT1_PATH: agents/${{ github.event.inputs.username1 }}/my_agent.py
           AGENT2_PATH: agents/${{ github.event.inputs.username2 }}/my_agent.py
+          AI2_UNIQUE_MODEL: 1
         run: |
           echo "Running battle between:"
           echo "Agent 1: $AGENT1_PATH"
