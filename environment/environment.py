@@ -858,7 +858,7 @@ class WarehouseBrawl(MalachiteEnv[np.ndarray, np.ndarray, int]):
         if self.game_mode == GameMode.ATTACK_DEBUG:
             self.max_timesteps = self.fps * 99999
         else:
-            self.max_timesteps = self.fps * 90
+            self.max_timesteps = self.fps * 300 #NOTE: change here for time, currently set to 5 mins
 
         self.agent_1_name = 'Team 1'
         self.agent_2_name = 'Team 2'
