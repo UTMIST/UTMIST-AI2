@@ -705,7 +705,7 @@ from tqdm import tqdm
 
 def run_match(agent_1: Agent | partial,
               agent_2: Agent | partial,
-              max_timesteps=30*90,
+              max_timesteps=60*90,
               video_path: Optional[str]=None,
               agent_1_name: Optional[str]=None,
               agent_2_name: Optional[str]=None,
@@ -716,6 +716,7 @@ def run_match(agent_1: Agent | partial,
     # Initialize env
 
     env = WarehouseBrawl(resolution=resolution, train_mode=train_mode)
+    env.max_timesteps = max_timesteps
     observations, infos = env.reset()
     obs_1 = observations[0]
     obs_2 = observations[1]
