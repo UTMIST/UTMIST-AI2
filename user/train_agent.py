@@ -584,48 +584,47 @@ if __name__ == '__main__':
     # Launch tensorboard port (IGNORE THIS)
     tb_process = launch_tensorboard()
 
-    try: 
-        # Create agent
-        my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
+    # Create agent
+    my_agent = CustomAgent(sb3_class=PPO, extractor=MLPExtractor)
 
-        # Start here if you want to train from scratch. e.g:
-        #my_agent = RecurrentPPOAgent()
-        #my_agent = SB3Agent(file_path="checkpoints/experiment_10/rl_model_81765_steps.zip")
+    # Start here if you want to train from scratch. e.g:
+    #my_agent = RecurrentPPOAgent()
+    #my_agent = SB3Agent(file_path="checkpoints/experiment_10/rl_model_81765_steps.zip")
 
-        # Start here if you want to train from a specific timestep. e.g:
-        #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_9/rl_model_518484_steps.zip')
+    # Start here if you want to train from a specific timestep. e.g:
+    #my_agent = RecurrentPPOAgent(file_path='checkpoints/experiment_9/rl_model_518484_steps.zip')
 
-        # Reward manager
-        reward_manager = gen_reward_manager()
-        # Self-play settings
-        selfplay_handler = SelfPlayRandom(
-            partial(type(my_agent)), # Agent class and its keyword arguments
-                                    # type(my_agent) = Agent class
-        )
-
-        # Set save settings here:
-        save_handler = SaveHandler(
-            agent=my_agent, # Agent to save
-            save_freq=100_000, # Save frequency
-            max_saved=40, # Maximum number of saved models
-            save_path='checkpoints', # Save path
-            run_name='experiment_11',
-            mode=SaveHandlerMode.RESUME # Save mode, FORCE or RESUME
-        )
-
-        # Set opponent settings here:
-        opponent_specification = {
-                        'self_play': (8, selfplay_handler),
-                        'constant_agent': (0.5, partial(ConstantAgent)),
-                        'based_agent': (1.5, partial(BasedAgent)),
-                    }
-        opponent_cfg = OpponentsCfg(opponents=opponent_specification)
-
-    train(my_agent,
-        reward_manager,
-        save_handler,
-        opponent_cfg,
-        CameraResolution.LOW,
-        train_timesteps=1_000_000_000,
-        train_logging=TrainLogging.PLOT
+    # Reward manager
+    reward_manager = gen_reward_manager()
+    # Self-play settings
+    selfplay_handler = SelfPlayRandom(
+        partial(type(my_agent)), # Agent class and its keyword arguments
+                                # type(my_agent) = Agent class
     )
+
+    # Set save settings here:
+    save_handler = SaveHandler(
+        agent=my_agent, # Agent to save
+        save_freq=100_000, # Save frequency
+        max_saved=40, # Maximum number of saved models
+        save_path='checkpoints', # Save path
+        run_name='experiment_11',
+        mode=SaveHandlerMode.RESUME # Save mode, FORCE or RESUME
+    )
+
+    # Set opponent settings here:
+    opponent_specification = {
+                    'self_play': (8, selfplay_handler),
+                    'constant_agent': (0.5, partial(ConstantAgent)),
+                    'based_agent': (1.5, partial(BasedAgent)),
+                }
+    opponent_cfg = OpponentsCfg(opponents=opponent_specification)
+
+train(my_agent,
+    reward_manager,
+    save_handler,
+    opponent_cfg,
+    CameraResolution.LOW,
+    train_timesteps=1_000_000_000,
+    train_logging=TrainLogging.PLOT
+)
