@@ -25,10 +25,81 @@ apt-get update && apt-get install -y \
     python3 \
     python3-dev\
     python3-pip \
+    curl \
     gcc \
     g++ \
     libapt-pkg-dev \
     build-essential
+
+# ----------------------------
+# Install Tenstorrent SFPI runtime (.deb)
+# ----------------------------
+SFPI_DEB_URL="https://github.com/tenstorrent/sfpi/releases/download/v6.21.0/sfpi_6.21.0_x86_64.deb"
+SFPI_DEB_PATH="/tmp/sfpi_6.21.0_x86_64.deb"
+
+echo "Downloading SFPI package from: $SFPI_DEB_URL"
+curl -L "$SFPI_DEB_URL" -o "$SFPI_DEB_PATH"
+
+echo "Installing SFPI package..."
+# Use dpkg then fix any missing dependencies
+dpkg -i "$SFPI_DEB_PATH" || apt-get -f install -y
+# Optionally, re-run dpkg if needed (usually not required after -f install)
+# dpkg -i "$SFPI_DEB_PATH" || true
+
+# Normalize SFPI location and ensure both expected lookup paths exist
+SFPI_DST_DIR="/opt/tenstorrent/sfpi"
+mkdir -p "/opt/tenstorrent"
+
+# Detect where the .deb placed SFPI (common locations)
+for CAND in \
+    "/opt/tenstorrent/sfpi" \
+    "/usr/local/lib/ttnn/runtime/sfpi" \
+    "/usr/local/lib/sfpi" \
+    "/usr/lib/ttnn/runtime/sfpi" \
+    "/usr/lib/sfpi" \
+    "/usr/local/tenstorrent/sfpi" \
+    "/usr/share/sfpi" \
+    "/usr/local/share/sfpi"; do
+    if [ -d "$CAND" ]; then
+        SFPI_SRC_DIR="$CAND"
+        break
+    fi
+done
+
+if [ -z "${SFPI_SRC_DIR:-}" ]; then
+    echo "Warning: Could not locate installed SFPI directory; proceeding to create ${SFPI_DST_DIR} if missing."
+    mkdir -p "$SFPI_DST_DIR"
+else
+    # Ensure /opt/tenstorrent/sfpi exists, prefer symlink to canonicalize location
+    if [ -e "$SFPI_DST_DIR" ] && [ ! -L "$SFPI_DST_DIR" ]; then
+        rm -rf "$SFPI_DST_DIR"
+    fi
+    if [ ! -e "$SFPI_DST_DIR" ]; then
+        ln -s "$SFPI_SRC_DIR" "$SFPI_DST_DIR"
+    fi
+fi
+
+# Create Python site-packages runtime link: ttnn/runtime/sfpi -> /opt/tenstorrent/sfpi
+SITE_PKGS="$(python - <<'PY'
+import sysconfig
+paths = sysconfig.get_paths()
+print(paths.get('purelib') or paths.get('platlib') or '')
+PY
+)"
+if [ -n "$SITE_PKGS" ] && [ -d "$SITE_PKGS" ]; then
+    TTNN_RUNTIME_DIR="$SITE_PKGS/ttnn/runtime"
+    mkdir -p "$TTNN_RUNTIME_DIR"
+    TARGET_LINK="$TTNN_RUNTIME_DIR/sfpi"
+    if [ -e "$TARGET_LINK" ] && [ ! -L "$TARGET_LINK" ]; then
+        rm -rf "$TARGET_LINK"
+    fi
+    if [ ! -e "$TARGET_LINK" ]; then
+        ln -s "$SFPI_DST_DIR" "$TARGET_LINK"
+    fi
+    echo "SFPI linked into Python runtime at: $TARGET_LINK"
+else
+    echo "Warning: Could not determine Python site-packages to link SFPI runtime."
+fi
 
 # ----------------------------
 # Upgrade pip and install gdown if missing
@@ -78,5 +149,7 @@ fi
 python -m pip install ttnn
 
 python -m pip install numpy==2.1.1
+
+
 
 echo "✅ Installation complete."
