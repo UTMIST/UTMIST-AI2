@@ -46,11 +46,22 @@ dpkg -i "$SFPI_DEB_PATH" || apt-get -f install -y
 # Optionally, re-run dpkg if needed (usually not required after -f install)
 # dpkg -i "$SFPI_DEB_PATH" || true
 
-# Normalize SFPI location and ensure both expected lookup paths exist
-SFPI_DST_DIR="/opt/tenstorrent/sfpi"
+# Normalize SFPI location and ensure both expected lookup paths exist without symlink loops
+SITE_PKGS="$(python - <<'PY'
+import sysconfig
+paths = sysconfig.get_paths()
+print(paths.get('purelib') or paths.get('platlib') or '')
+PY
+)"
+if [ -n "$SITE_PKGS" ] && [ -d "$SITE_PKGS" ]; then
+    echo "Detected site-packages at: $SITE_PKGS"
+fi
+
+SFPI_CANON="/opt/tenstorrent/sfpi"
 mkdir -p "/opt/tenstorrent"
 
 # Detect where the .deb placed SFPI (common locations)
+SFPI_SRC_DIR=""
 for CAND in \
     "/opt/tenstorrent/sfpi" \
     "/usr/local/lib/ttnn/runtime/sfpi" \
@@ -66,39 +77,55 @@ for CAND in \
     fi
 done
 
-if [ -z "${SFPI_SRC_DIR:-}" ]; then
-    echo "Warning: Could not locate installed SFPI directory; proceeding to create ${SFPI_DST_DIR} if missing."
-    mkdir -p "$SFPI_DST_DIR"
-else
-    # Ensure /opt/tenstorrent/sfpi exists, prefer symlink to canonicalize location
-    if [ -e "$SFPI_DST_DIR" ] && [ ! -L "$SFPI_DST_DIR" ]; then
-        rm -rf "$SFPI_DST_DIR"
+SITE_TTNN_RUNTIME=""
+SITE_SFPI=""
+if [ -n "$SITE_PKGS" ]; then
+    SITE_TTNN_RUNTIME="$SITE_PKGS/ttnn/runtime"
+    SITE_SFPI="$SITE_TTNN_RUNTIME/sfpi"
+fi
+
+# If only site-packages copy exists, set it as source
+if [ -z "$SFPI_SRC_DIR" ] && [ -n "$SITE_SFPI" ] && [ -d "$SITE_SFPI" ]; then
+    SFPI_SRC_DIR="$SITE_SFPI"
+fi
+
+echo "SFPI source: ${SFPI_SRC_DIR:-<none>}"
+echo "SFPI canonical: $SFPI_CANON"
+echo "Python runtime target: ${SITE_SFPI:-<none>}"
+
+# If SFPI located inside site-packages, move it to canonical location to avoid symlink loops
+if [ -n "$SITE_SFPI" ] && [ "$SFPI_SRC_DIR" = "$SITE_SFPI" ]; then
+    # Resolve symlink if site sfpi is a link
+    if [ -L "$SITE_SFPI" ]; then
+        RESOLVED="$(readlink -f "$SITE_SFPI" || true)"
+        if [ -n "$RESOLVED" ] && [ -d "$RESOLVED" ]; then
+            SFPI_SRC_DIR="$RESOLVED"
+        fi
     fi
-    if [ ! -e "$SFPI_DST_DIR" ]; then
-        ln -s "$SFPI_SRC_DIR" "$SFPI_DST_DIR"
+    # If still the same path (real dir), move to /opt
+    if [ "$SFPI_SRC_DIR" = "$SITE_SFPI" ]; then
+        rm -rf "$SFPI_CANON"
+        mkdir -p "$(dirname "$SFPI_CANON")"
+        mv "$SITE_SFPI" "$SFPI_CANON"
+        SFPI_SRC_DIR="$SFPI_CANON"
     fi
 fi
 
-# Create Python site-packages runtime link: ttnn/runtime/sfpi -> /opt/tenstorrent/sfpi
-SITE_PKGS="$(python - <<'PY'
-import sysconfig
-paths = sysconfig.get_paths()
-print(paths.get('purelib') or paths.get('platlib') or '')
-PY
-)"
-if [ -n "$SITE_PKGS" ] && [ -d "$SITE_PKGS" ]; then
-    TTNN_RUNTIME_DIR="$SITE_PKGS/ttnn/runtime"
-    mkdir -p "$TTNN_RUNTIME_DIR"
-    TARGET_LINK="$TTNN_RUNTIME_DIR/sfpi"
-    if [ -e "$TARGET_LINK" ] && [ ! -L "$TARGET_LINK" ]; then
-        rm -rf "$TARGET_LINK"
+# Ensure canonical directory has actual files (copy if needed)
+if [ "$SFPI_SRC_DIR" != "$SFPI_CANON" ] && [ -n "$SFPI_SRC_DIR" ] && [ -d "$SFPI_SRC_DIR" ]; then
+    rm -rf "$SFPI_CANON"
+    mkdir -p "$SFPI_CANON"
+    cp -a "$SFPI_SRC_DIR/." "$SFPI_CANON/"
+fi
+
+# Refresh site-packages runtime link to point to canonical location
+if [ -n "$SITE_TTNN_RUNTIME" ]; then
+    mkdir -p "$SITE_TTNN_RUNTIME"
+    if [ -e "$SITE_SFPI" ] || [ -L "$SITE_SFPI" ]; then
+        rm -rf "$SITE_SFPI"
     fi
-    if [ ! -e "$TARGET_LINK" ]; then
-        ln -s "$SFPI_DST_DIR" "$TARGET_LINK"
-    fi
-    echo "SFPI linked into Python runtime at: $TARGET_LINK"
-else
-    echo "Warning: Could not determine Python site-packages to link SFPI runtime."
+    ln -s "$SFPI_CANON" "$SITE_SFPI"
+    echo "SFPI linked into Python runtime at: $SITE_SFPI -> $SFPI_CANON"
 fi
 
 # ----------------------------
